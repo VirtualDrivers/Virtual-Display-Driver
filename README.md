@@ -14,7 +14,7 @@ Unlike traditional monitors, this virtual display supports custom resolutions an
 
 ## ⬇️ Download Latest Version
 
-- [Driver Installer (Windows 10/11)](https://github.com/VirtualDisplay/Virtual-Display-Driver/releases) - Check the [Releases](https://github.com/VirtualDisplay/Virtual-Display-Driver/releases) page for the latest version and release notes.
+- [Driver Installer (Windows 10/11)](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) - Check the [Releases](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) page for the latest version and release notes.
 
 > [!IMPORTANT]
 > Before using the Virtual Display Driver, ensure the following dependencies are installed:
@@ -25,7 +25,7 @@ Unlike traditional monitors, this virtual display supports custom resolutions an
 ## 🛠️ Installation
 
 - Step 1: Download the Virtual Driver Control app.
-   - You can download the installer directly from the [Releases](https://github.com/VirtualDisplay/Virtual-Display-Driver/releases) page.
+   - You can download the installer directly from the [Releases](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) page.
 
 - Step 2: Extract to a folder and run the app
    - Launch the VDC.
