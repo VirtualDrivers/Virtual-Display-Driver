@@ -1,166 +1,102 @@
 <?xml version='1.0' encoding='utf-8'?>
-<!-- ===============================================================================
-     Virtual Display Driver (HDR) - Minimal Configuration File
-     Contains ONLY functional settings (unused settings removed)
-     
-     Original file contained 63 settings, this minimal version contains 52 functional settings
-     Generated: August 16, 2025 based on driver code analysis
-     =============================================================================== -->
 <vdd_settings>
-
-    <!-- === BASIC DRIVER CONFIGURATION === -->
     <monitors>
         <count>1</count>
     </monitors>
-
     <gpu>
         <friendlyname>default</friendlyname>
     </gpu>
-
-    <!-- === RESOLUTION CONFIGURATION === -->
-    <global>
-        <!-- Global refresh rates - applied to all resolutions -->
-        <g_refresh_rate>60</g_refresh_rate>
-        <g_refresh_rate>90</g_refresh_rate>
-        <g_refresh_rate>120</g_refresh_rate>
-        <g_refresh_rate>144</g_refresh_rate>
-        <g_refresh_rate>165</g_refresh_rate>
-        <g_refresh_rate>240</g_refresh_rate>
-    </global>
-
+	<global>
+		<!--These are global refreshrates, any you add in here, will be replicated to all resolutions-->
+		<g_refresh_rate>60</g_refresh_rate>
+		<g_refresh_rate>90</g_refresh_rate>
+		<g_refresh_rate>120</g_refresh_rate>
+		<g_refresh_rate>144</g_refresh_rate>
+		<g_refresh_rate>165</g_refresh_rate>
+		<g_refresh_rate>244</g_refresh_rate>
+	</global>
     <resolutions>
+        <resolution>
+            <width>800</width>
+            <height>600</height>
+            <refresh_rate>30</refresh_rate>
+        </resolution>
+        <resolution>
+            <width>1366</width>
+            <height>768</height>
+            <refresh_rate>30</refresh_rate>
+        </resolution>
         <resolution>
             <width>1920</width>
             <height>1080</height>
-            <refresh_rate>60</refresh_rate>
+            <refresh_rate>30</refresh_rate>
+        </resolution>
+        <resolution>
+            <width>2400</width>
+            <height>1080</height>
+            <refresh_rate>30</refresh_rate>
         </resolution>
         <resolution>
             <width>2560</width>
             <height>1440</height>
-            <refresh_rate>60</refresh_rate>
+            <refresh_rate>30</refresh_rate>
         </resolution>
         <resolution>
             <width>3840</width>
             <height>2160</height>
-            <refresh_rate>60</refresh_rate>
+            <refresh_rate>30</refresh_rate>
         </resolution>
+    
+        
     </resolutions>
-
-    <!-- === LOGGING CONFIGURATION === -->
-    <logging>
-        <SendLogsThroughPipe>true</SendLogsThroughPipe>
-        <logging>false</logging>
-        <debuglogging>false</debuglogging> <!-- WARNING: Debug logging creates large files -->
-    </logging>
-
-    <!-- === COLOR FORMAT CONFIGURATION === -->
-    <colour>
-        <SDR10bit>false</SDR10bit>
-        <HDRPlus>false</HDRPlus>
-        <ColourFormat>RGB</ColourFormat> <!-- Options: RGB, YCbCr444, YCbCr422, YCbCr420 -->
-    </colour>
-
-    <!-- === CURSOR CONFIGURATION === -->
-    <cursor>
-        <HardwareCursor>true</HardwareCursor>
-        <CursorMaxX>128</CursorMaxX>
-        <CursorMaxY>128</CursorMaxY>
-        <AlphaCursorSupport>true</AlphaCursorSupport>
-        <!-- NOTE: XorCursorSupportLevel has implementation bug - loaded but not used -->
-        <XorCursorSupportLevel>2</XorCursorSupportLevel>
-    </cursor>
-
-    <!-- === CUSTOM EDID CONFIGURATION === -->
-    <edid>
-        <CustomEdid>false</CustomEdid>       <!-- Use custom "user_edid.bin" file -->
-        <PreventSpoof>false</PreventSpoof>   <!-- Prevent manufacturer ID spoofing -->
-        <EdidCeaOverride>false</EdidCeaOverride> <!-- Override CEA extension block -->
-    </edid>
-
-    <!-- === EDID INTEGRATION SYSTEM === -->
-    <edid_integration>
-        <enabled>false</enabled>                                   <!-- DISABLED: Enable when you have monitor_profile.xml -->
-        <auto_configure_from_edid>false</auto_configure_from_edid> <!-- Auto-apply monitor_profile.xml -->
-        <edid_profile_path>EDID/monitor_profile.xml</edid_profile_path>
-        <override_manual_settings>false</override_manual_settings> <!-- false = manual settings take priority -->
-        <fallback_on_error>true</fallback_on_error>                <!-- Use manual settings if EDID fails -->
-    </edid_integration>
-
-    <!-- === HDR CONFIGURATION === -->
-    <hdr_advanced>
-        <hdr10_static_metadata>
-            <enabled>false</enabled>                               <!-- DISABLED: Enable for HDR10 support -->
-            <max_display_mastering_luminance>1000.0</max_display_mastering_luminance>
-            <min_display_mastering_luminance>0.05</min_display_mastering_luminance>
-            <max_content_light_level>1000</max_content_light_level>
-            <max_frame_avg_light_level>400</max_frame_avg_light_level>
-        </hdr10_static_metadata>
-        <color_primaries>
-            <enabled>false</enabled>       <!-- DISABLED: Enable for custom color primaries -->
-            <red_x>0.640</red_x>           <!-- sRGB color space (safe defaults) -->
-            <red_y>0.330</red_y>
-            <green_x>0.300</green_x>
-            <green_y>0.600</green_y>
-            <blue_x>0.150</blue_x>
-            <blue_y>0.060</blue_y>
-            <white_x>0.3127</white_x>      <!-- D65 white point -->
-            <white_y>0.3290</white_y>
-        </color_primaries>
-        <color_space>
-            <enabled>false</enabled>                           <!-- DISABLED: Enable for advanced gamma -->
-            <gamma_correction>2.2</gamma_correction>           <!-- Standard sRGB gamma -->
-            <primary_color_space>sRGB</primary_color_space>    <!-- Safe default: sRGB -->
-            <enable_matrix_transform>false</enable_matrix_transform>
-        </color_space>
-    </hdr_advanced>
-
-    <!-- === AUTO RESOLUTION SYSTEM === -->
-    <auto_resolutions>
-        <enabled>false</enabled>                   <!-- DISABLED: Enable for EDID mode generation -->
-        <source_priority>manual</source_priority>  <!-- Use manual resolutions only by default -->
-        <edid_mode_filtering>
-            <min_refresh_rate>24</min_refresh_rate>
-            <max_refresh_rate>240</max_refresh_rate>
-            <exclude_fractional_rates>false</exclude_fractional_rates>
-            <min_resolution_width>640</min_resolution_width>
-            <min_resolution_height>480</min_resolution_height>
-            <max_resolution_width>7680</max_resolution_width>
-            <max_resolution_height>4320</max_resolution_height>
-        </edid_mode_filtering>
-        <preferred_mode>
-            <use_edid_preferred>false</use_edid_preferred> <!-- Use manual preferred mode -->
-            <fallback_width>1920</fallback_width>
-            <fallback_height>1080</fallback_height>
-            <fallback_refresh>60</fallback_refresh>
-        </preferred_mode>
-    </auto_resolutions>
-
-    <!-- === ADVANCED COLOR PROCESSING === -->
-    <color_advanced>
-        <bit_depth_management>
-            <auto_select_from_color_space>false</auto_select_from_color_space> <!-- Manual control -->
-            <force_bit_depth>8</force_bit_depth>    <!-- Safe default: 8-bit -->
-            <fp16_surface_support>true</fp16_surface_support> <!-- Keep enabled for compatibility -->
-        </bit_depth_management>
-        <color_format_extended>
-            <!-- NOTE: wide_color_gamut and hdr_tone_mapping are loaded but not implemented -->
-            <sdr_white_level>80.0</sdr_white_level>         <!-- Standard SDR white level -->
-        </color_format_extended>
-    </color_advanced>
-
-    <!-- === REMOVED SECTIONS ===
-    
-    The following sections were present in the original vdd_settings.xml but have been 
-    removed because they are loaded but never used in the driver:
-    
-    1. monitor_emulation (8 settings) - All settings loaded but unused
-       - enabled, emulate_physical_dimensions, physical_width_mm, physical_height_mm
-       - manufacturer_emulation/enabled, manufacturer_name, model_name, serial_number
-       
-    2. color_format_extended partial (2 settings) - Loaded but unused  
-       - wide_color_gamut, hdr_tone_mapping
-       
-    Driver uses hardcoded values instead of these XML settings.
-    === -->
-
+	<logging>
+		<SendLogsThroughPipe>true</SendLogsThroughPipe> <!-- Can only send logs through pipe if logging is enabled-->
+		<logging>false</logging>
+		<!-- DEBUG LOGGING FOR EXPERTS ONLY!-->
+		<debuglogging>false</debuglogging>
+		<!-- DEBUG LOGS CAN GENERATE 1000+ LINES-->
+		<!-- Warning: Leaving logging on too long can lead to excessive filesize. Especially DebugLogging, which should only be used for short periods to log errors. -->
+		<!-- Logging: Useful to troubleshoot and determine which GPUs are being used, and if displays are working as intended.-->
+		<!-- Debug Logging: Logs local system information with every driver function/event/process. Useful for GitHub Help Tickets.-->
+	</logging>
+	<colour>
+		<SDR10bit>false</SDR10bit>
+		<HDRPlus>false</HDRPlus> <!-- If you have SDR10 bit enabled, HDRPlus wont work - there's a conflict because the display system cannot simultaneously handle both high dynamic range 12-bit and standard dynamic range 10-bit settings. -->
+		<ColourFormat>RGB</ColourFormat>
+		<!--
+		Supported colour formats:
+		RGB
+		YCbCr444
+		YCbCr422
+		YCbCr420
+		
+		Any invalid colour formats which are used will default to use RGB
+		-->
+	</colour>
+	<cursor>
+		<HardwareCursor>true</HardwareCursor>
+		<!--Whether to display a hardware cursor in the buffer (If disabled streaming apps will use client cursor)-->
+		<CursorMaxY>128</CursorMaxY>
+		<!--The maximum height support for all cursor types. Older intel cpus may be limited to 64x64 -->
+		<CursorMaxX>128</CursorMaxX>
+		<!--The maximum width supported for all supported cursor types.-->
+		<AlphaCursorSupport>true</AlphaCursorSupport>
+		<!--Indicates if the adapter supports the 32-bit alpha cursor format. Most cursors are alpha format.-->
+		<XorCursorSupportLevel>2</XorCursorSupportLevel>
+		<!-- Do not change if you don't know what you're doing -->
+		<!--
+		0 = IDDCX_XOR_CURSOR_SUPPORT_UNINITIALIZED
+		1 = IDDCX_XOR_CURSOR_SUPPORT_NONE
+		2 = IDDCX_XOR_CURSOR_SUPPORT_FULL
+		3 = IDDCX_XOR_CURSOR_SUPPORT_EMULATION
+		-->
+	</cursor>
+	<edid>
+		<CustomEdid>false</CustomEdid>
+		<!-- Custom Edid should be named "user_edid.bin"! This does not support emulating resolutions!-->
+		<PreventSpoof>false</PreventSpoof>
+		<!--Enable this to prevent manufacturer spoofing when using custom edid. Please only do so if you need to!-->
+		<EdidCeaOverride>false</EdidCeaOverride>
+		<!--Enable this to override or add hard coded cea-extension block to custom Edid support allowing you to enable HDR-->
+	</edid>
 </vdd_settings>
