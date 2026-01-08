@@ -679,16 +679,16 @@ struct EdidProfileData {
 
 // === COLOR SPACE AND GAMMA STRUCTURES ===
 struct VddColorMatrix {
-    FLOAT matrix[3][4] = {}; // 3x4 color space transformation matrix - zero initialized
-    bool isValid = false;
+	FLOAT matrix[3][4] = {}; // 3x4 color space transformation matrix - zero initialized
+	bool isValid = false;
 };
 
 struct VddGammaRamp {
-    FLOAT gamma = 2.2f;
-    wstring colorSpace;
-    VddColorMatrix matrix = {};
-    bool useMatrix = false;
-    bool isValid = false;
+	FLOAT gamma = 2.2f;
+	wstring colorSpace;
+	VddColorMatrix matrix = {};
+	bool useMatrix = false;
+	bool isValid = false;
 };
 
 // === GAMMA AND COLOR SPACE STORAGE ===
@@ -698,148 +698,148 @@ std::map<IDDCX_MONITOR, VddGammaRamp> g_GammaRampStore;
 
 // Convert gamma value to 3x4 color space transformation matrix
 VddColorMatrix ConvertGammaToMatrix(double gamma, const wstring& colorSpace) {
-    VddColorMatrix matrix = {};
-    
-    // Identity matrix as base
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 4; j++) {
-            matrix.matrix[i][j] = (i == j) ? 1.0f : 0.0f;
-        }
-    }
-    
-    // Apply gamma correction to diagonal elements
-    float gammaValue = static_cast<float>(gamma);
-    
-    if (colorSpace == L"sRGB") {
-        // sRGB gamma correction (2.2)
-        matrix.matrix[0][0] = gammaValue / 2.2f;  // Red
-        matrix.matrix[1][1] = gammaValue / 2.2f;  // Green
-        matrix.matrix[2][2] = gammaValue / 2.2f;  // Blue
-    }
-    else if (colorSpace == L"DCI-P3") {
-        // DCI-P3 color space transformation with gamma
-        // P3 to sRGB matrix with gamma correction
-        matrix.matrix[0][0] = 1.2249f * (gammaValue / 2.4f);
-        matrix.matrix[0][1] = -0.2247f;
-        matrix.matrix[0][2] = 0.0f;
-        matrix.matrix[1][0] = -0.0420f;
-        matrix.matrix[1][1] = 1.0419f * (gammaValue / 2.4f);
-        matrix.matrix[1][2] = 0.0f;
-        matrix.matrix[2][0] = -0.0196f;
-        matrix.matrix[2][1] = -0.0786f;
-        matrix.matrix[2][2] = 1.0982f * (gammaValue / 2.4f);
-    }
-    else if (colorSpace == L"Rec.2020") {
-        // Rec.2020 to sRGB matrix with gamma correction
-        matrix.matrix[0][0] = 1.7347f * (gammaValue / 2.4f);
-        matrix.matrix[0][1] = -0.7347f;
-        matrix.matrix[0][2] = 0.0f;
-        matrix.matrix[1][0] = -0.1316f;
-        matrix.matrix[1][1] = 1.1316f * (gammaValue / 2.4f);
-        matrix.matrix[1][2] = 0.0f;
-        matrix.matrix[2][0] = -0.0241f;
-        matrix.matrix[2][1] = -0.1289f;
-        matrix.matrix[2][2] = 1.1530f * (gammaValue / 2.4f);
-    }
-    else if (colorSpace == L"Adobe_RGB") {
-        // Adobe RGB with gamma correction
-        matrix.matrix[0][0] = 1.0f * (gammaValue / 2.2f);
-        matrix.matrix[1][1] = 1.0f * (gammaValue / 2.2f);
-        matrix.matrix[2][2] = 1.0f * (gammaValue / 2.2f);
-    }
-    else {
-        // Default to sRGB for unknown color spaces
-        matrix.matrix[0][0] = gammaValue / 2.2f;
-        matrix.matrix[1][1] = gammaValue / 2.2f;
-        matrix.matrix[2][2] = gammaValue / 2.2f;
-    }
-    
-    matrix.isValid = true;
-    return matrix;
+	VddColorMatrix matrix = {};
+	
+	// Identity matrix as base
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 4; j++) {
+			matrix.matrix[i][j] = (i == j) ? 1.0f : 0.0f;
+		}
+	}
+	
+	// Apply gamma correction to diagonal elements
+	float gammaValue = static_cast<float>(gamma);
+	
+	if (colorSpace == L"sRGB") {
+		// sRGB gamma correction (2.2)
+		matrix.matrix[0][0] = gammaValue / 2.2f;  // Red
+		matrix.matrix[1][1] = gammaValue / 2.2f;  // Green
+		matrix.matrix[2][2] = gammaValue / 2.2f;  // Blue
+	}
+	else if (colorSpace == L"DCI-P3") {
+		// DCI-P3 color space transformation with gamma
+		// P3 to sRGB matrix with gamma correction
+		matrix.matrix[0][0] = 1.2249f * (gammaValue / 2.4f);
+		matrix.matrix[0][1] = -0.2247f;
+		matrix.matrix[0][2] = 0.0f;
+		matrix.matrix[1][0] = -0.0420f;
+		matrix.matrix[1][1] = 1.0419f * (gammaValue / 2.4f);
+		matrix.matrix[1][2] = 0.0f;
+		matrix.matrix[2][0] = -0.0196f;
+		matrix.matrix[2][1] = -0.0786f;
+		matrix.matrix[2][2] = 1.0982f * (gammaValue / 2.4f);
+	}
+	else if (colorSpace == L"Rec.2020") {
+		// Rec.2020 to sRGB matrix with gamma correction
+		matrix.matrix[0][0] = 1.7347f * (gammaValue / 2.4f);
+		matrix.matrix[0][1] = -0.7347f;
+		matrix.matrix[0][2] = 0.0f;
+		matrix.matrix[1][0] = -0.1316f;
+		matrix.matrix[1][1] = 1.1316f * (gammaValue / 2.4f);
+		matrix.matrix[1][2] = 0.0f;
+		matrix.matrix[2][0] = -0.0241f;
+		matrix.matrix[2][1] = -0.1289f;
+		matrix.matrix[2][2] = 1.1530f * (gammaValue / 2.4f);
+	}
+	else if (colorSpace == L"Adobe_RGB") {
+		// Adobe RGB with gamma correction
+		matrix.matrix[0][0] = 1.0f * (gammaValue / 2.2f);
+		matrix.matrix[1][1] = 1.0f * (gammaValue / 2.2f);
+		matrix.matrix[2][2] = 1.0f * (gammaValue / 2.2f);
+	}
+	else {
+		// Default to sRGB for unknown color spaces
+		matrix.matrix[0][0] = gammaValue / 2.2f;
+		matrix.matrix[1][1] = gammaValue / 2.2f;
+		matrix.matrix[2][2] = gammaValue / 2.2f;
+	}
+	
+	matrix.isValid = true;
+	return matrix;
 }
 
 // Convert EDID profile to gamma ramp
 VddGammaRamp ConvertEdidToGammaRamp(const EdidProfileData& profile) {
-    VddGammaRamp gammaRamp = {};
-    
-    gammaRamp.gamma = static_cast<FLOAT>(profile.gamma);
-    gammaRamp.colorSpace = profile.primaryColorSpace;
-    
-    // Generate matrix if matrix transforms are enabled
-    if (enableMatrixTransform) {
-        gammaRamp.matrix = ConvertGammaToMatrix(profile.gamma, profile.primaryColorSpace);
-        gammaRamp.useMatrix = gammaRamp.matrix.isValid;
-    }
-    
-    gammaRamp.isValid = colorSpaceEnabled;
-    
-    return gammaRamp;
+	VddGammaRamp gammaRamp = {};
+	
+	gammaRamp.gamma = static_cast<FLOAT>(profile.gamma);
+	gammaRamp.colorSpace = profile.primaryColorSpace;
+	
+	// Generate matrix if matrix transforms are enabled
+	if (enableMatrixTransform) {
+		gammaRamp.matrix = ConvertGammaToMatrix(profile.gamma, profile.primaryColorSpace);
+		gammaRamp.useMatrix = gammaRamp.matrix.isValid;
+	}
+	
+	gammaRamp.isValid = colorSpaceEnabled;
+	
+	return gammaRamp;
 }
 
 // Convert manual settings to gamma ramp
 VddGammaRamp ConvertManualToGammaRamp() {
-    VddGammaRamp gammaRamp = {};
-    
-    gammaRamp.gamma = static_cast<FLOAT>(gammaCorrection);
-    gammaRamp.colorSpace = primaryColorSpace;
-    
-    // Generate matrix if matrix transforms are enabled
-    if (enableMatrixTransform) {
-        gammaRamp.matrix = ConvertGammaToMatrix(gammaCorrection, primaryColorSpace);
-        gammaRamp.useMatrix = gammaRamp.matrix.isValid;
-    }
-    
-    gammaRamp.isValid = colorSpaceEnabled;
-    
-    return gammaRamp;
+	VddGammaRamp gammaRamp = {};
+	
+	gammaRamp.gamma = static_cast<FLOAT>(gammaCorrection);
+	gammaRamp.colorSpace = primaryColorSpace;
+	
+	// Generate matrix if matrix transforms are enabled
+	if (enableMatrixTransform) {
+		gammaRamp.matrix = ConvertGammaToMatrix(gammaCorrection, primaryColorSpace);
+		gammaRamp.useMatrix = gammaRamp.matrix.isValid;
+	}
+	
+	gammaRamp.isValid = colorSpaceEnabled;
+	
+	return gammaRamp;
 }
 
 // Enhanced color format selection based on color space
 IDDCX_BITS_PER_COMPONENT SelectBitDepthFromColorSpace(const wstring& colorSpace) {
-    if (autoSelectFromColorSpace) {
-        if (colorSpace == L"Rec.2020") {
-            return IDDCX_BITS_PER_COMPONENT_10;  // HDR10 - 10-bit for wide color gamut
-        } else if (colorSpace == L"DCI-P3") {
-            return IDDCX_BITS_PER_COMPONENT_10;  // Wide color gamut - 10-bit
-        } else if (colorSpace == L"Adobe_RGB") {
-            return IDDCX_BITS_PER_COMPONENT_10;  // Professional - 10-bit
-        } else {
-            return IDDCX_BITS_PER_COMPONENT_8;   // sRGB - 8-bit
-        }
-    }
-    
-    // Manual bit depth override
-    if (forceBitDepth == L"8") {
-        return IDDCX_BITS_PER_COMPONENT_8;
-    } else if (forceBitDepth == L"10") {
-        return IDDCX_BITS_PER_COMPONENT_10;
-    } else if (forceBitDepth == L"12") {
-        return IDDCX_BITS_PER_COMPONENT_12;
-    }
-    
-    // Default to existing color depth logic
-    return HDRPlus ? IDDCX_BITS_PER_COMPONENT_12 : 
-           (SDR10 ? IDDCX_BITS_PER_COMPONENT_10 : IDDCX_BITS_PER_COMPONENT_8);
+	if (autoSelectFromColorSpace) {
+		if (colorSpace == L"Rec.2020") {
+			return IDDCX_BITS_PER_COMPONENT_10;  // HDR10 - 10-bit for wide color gamut
+		} else if (colorSpace == L"DCI-P3") {
+			return IDDCX_BITS_PER_COMPONENT_10;  // Wide color gamut - 10-bit
+		} else if (colorSpace == L"Adobe_RGB") {
+			return IDDCX_BITS_PER_COMPONENT_10;  // Professional - 10-bit
+		} else {
+			return IDDCX_BITS_PER_COMPONENT_8;   // sRGB - 8-bit
+		}
+	}
+	
+	// Manual bit depth override
+	if (forceBitDepth == L"8") {
+		return IDDCX_BITS_PER_COMPONENT_8;
+	} else if (forceBitDepth == L"10") {
+		return IDDCX_BITS_PER_COMPONENT_10;
+	} else if (forceBitDepth == L"12") {
+		return IDDCX_BITS_PER_COMPONENT_12;
+	}
+	
+	// Default to existing color depth logic
+	return HDRPlus ? IDDCX_BITS_PER_COMPONENT_12 : 
+		   (SDR10 ? IDDCX_BITS_PER_COMPONENT_10 : IDDCX_BITS_PER_COMPONENT_8);
 }
 
 // === SMPTE ST.2086 HDR METADATA STRUCTURE ===
 struct VddHdrMetadata {
-    // SMPTE ST.2086 Display Primaries (scaled 0-50000) - zero initialized
-    UINT16 display_primaries_x[3] = {};      // R, G, B chromaticity x coordinates
-    UINT16 display_primaries_y[3] = {};      // R, G, B chromaticity y coordinates
-    UINT16 white_point_x = 0;               // White point x coordinate
-    UINT16 white_point_y = 0;               // White point y coordinate
-    
-    // Luminance values (0.0001 cd/m² units for SMPTE ST.2086)
-    UINT32 max_display_mastering_luminance = 0;
-    UINT32 min_display_mastering_luminance = 0;
-    
-    // Content light level (nits)
-    UINT16 max_content_light_level = 0;
-    UINT16 max_frame_avg_light_level = 0;
-    
-    // Validation flag
-    bool isValid = false;
+	// SMPTE ST.2086 Display Primaries (scaled 0-50000) - zero initialized
+	UINT16 display_primaries_x[3] = {};      // R, G, B chromaticity x coordinates
+	UINT16 display_primaries_y[3] = {};      // R, G, B chromaticity y coordinates
+	UINT16 white_point_x = 0;               // White point x coordinate
+	UINT16 white_point_y = 0;               // White point y coordinate
+	
+	// Luminance values (0.0001 cd/m² units for SMPTE ST.2086)
+	UINT32 max_display_mastering_luminance = 0;
+	UINT32 min_display_mastering_luminance = 0;
+	
+	// Content light level (nits)
+	UINT16 max_content_light_level = 0;
+	UINT16 max_frame_avg_light_level = 0;
+	
+	// Validation flag
+	bool isValid = false;
 };
 
 // === HDR METADATA STORAGE ===
@@ -849,298 +849,298 @@ std::map<IDDCX_MONITOR, VddHdrMetadata> g_HdrMetadataStore;
 
 // Convert EDID chromaticity (0.0-1.0) to SMPTE ST.2086 format (0-50000)
 UINT16 ConvertChromaticityToSmpte(double edidValue) {
-    // Clamp to valid range
-    if (edidValue < 0.0) edidValue = 0.0;
-    if (edidValue > 1.0) edidValue = 1.0;
-    
-    return static_cast<UINT16>(edidValue * 50000.0);
+	// Clamp to valid range
+	if (edidValue < 0.0) edidValue = 0.0;
+	if (edidValue > 1.0) edidValue = 1.0;
+	
+	return static_cast<UINT16>(edidValue * 50000.0);
 }
 
 // Convert EDID luminance (nits) to SMPTE ST.2086 format (0.0001 cd/m² units)
 UINT32 ConvertLuminanceToSmpte(double nits) {
-    // Clamp to reasonable range (0.0001 to 10000 nits)
-    if (nits < 0.0001) nits = 0.0001;
-    if (nits > 10000.0) nits = 10000.0;
-    
-    return static_cast<UINT32>(nits * 10000.0);
+	// Clamp to reasonable range (0.0001 to 10000 nits)
+	if (nits < 0.0001) nits = 0.0001;
+	if (nits > 10000.0) nits = 10000.0;
+	
+	return static_cast<UINT32>(nits * 10000.0);
 }
 
 // Convert EDID profile data to SMPTE ST.2086 HDR metadata
 VddHdrMetadata ConvertEdidToSmpteMetadata(const EdidProfileData& profile) {
-    VddHdrMetadata metadata = {};
-    
-    // Convert chromaticity coordinates
-    metadata.display_primaries_x[0] = ConvertChromaticityToSmpte(profile.redX);     // Red
-    metadata.display_primaries_y[0] = ConvertChromaticityToSmpte(profile.redY);
-    metadata.display_primaries_x[1] = ConvertChromaticityToSmpte(profile.greenX);   // Green  
-    metadata.display_primaries_y[1] = ConvertChromaticityToSmpte(profile.greenY);
-    metadata.display_primaries_x[2] = ConvertChromaticityToSmpte(profile.blueX);    // Blue
-    metadata.display_primaries_y[2] = ConvertChromaticityToSmpte(profile.blueY);
-    
-    // Convert white point
-    metadata.white_point_x = ConvertChromaticityToSmpte(profile.whiteX);
-    metadata.white_point_y = ConvertChromaticityToSmpte(profile.whiteY);
-    
-    // Convert luminance values
-    metadata.max_display_mastering_luminance = ConvertLuminanceToSmpte(profile.maxLuminance);
-    metadata.min_display_mastering_luminance = ConvertLuminanceToSmpte(profile.minLuminance);
-    
-    // Use configured content light levels (from vdd_settings.xml)
-    metadata.max_content_light_level = static_cast<UINT16>(maxContentLightLevel);
-    metadata.max_frame_avg_light_level = static_cast<UINT16>(maxFrameAvgLightLevel);
-    
-    // Mark as valid if we have HDR10 support
-    metadata.isValid = profile.hdr10Supported && hdr10StaticMetadataEnabled;
-    
-    return metadata;
+	VddHdrMetadata metadata = {};
+	
+	// Convert chromaticity coordinates
+	metadata.display_primaries_x[0] = ConvertChromaticityToSmpte(profile.redX);     // Red
+	metadata.display_primaries_y[0] = ConvertChromaticityToSmpte(profile.redY);
+	metadata.display_primaries_x[1] = ConvertChromaticityToSmpte(profile.greenX);   // Green  
+	metadata.display_primaries_y[1] = ConvertChromaticityToSmpte(profile.greenY);
+	metadata.display_primaries_x[2] = ConvertChromaticityToSmpte(profile.blueX);    // Blue
+	metadata.display_primaries_y[2] = ConvertChromaticityToSmpte(profile.blueY);
+	
+	// Convert white point
+	metadata.white_point_x = ConvertChromaticityToSmpte(profile.whiteX);
+	metadata.white_point_y = ConvertChromaticityToSmpte(profile.whiteY);
+	
+	// Convert luminance values
+	metadata.max_display_mastering_luminance = ConvertLuminanceToSmpte(profile.maxLuminance);
+	metadata.min_display_mastering_luminance = ConvertLuminanceToSmpte(profile.minLuminance);
+	
+	// Use configured content light levels (from vdd_settings.xml)
+	metadata.max_content_light_level = static_cast<UINT16>(maxContentLightLevel);
+	metadata.max_frame_avg_light_level = static_cast<UINT16>(maxFrameAvgLightLevel);
+	
+	// Mark as valid if we have HDR10 support
+	metadata.isValid = profile.hdr10Supported && hdr10StaticMetadataEnabled;
+	
+	return metadata;
 }
 
 // Convert manual settings to SMPTE ST.2086 HDR metadata
 VddHdrMetadata ConvertManualToSmpteMetadata() {
-    VddHdrMetadata metadata = {};
-    
-    // Convert manual chromaticity coordinates
-    metadata.display_primaries_x[0] = ConvertChromaticityToSmpte(redX);     // Red
-    metadata.display_primaries_y[0] = ConvertChromaticityToSmpte(redY);
-    metadata.display_primaries_x[1] = ConvertChromaticityToSmpte(greenX);   // Green  
-    metadata.display_primaries_y[1] = ConvertChromaticityToSmpte(greenY);
-    metadata.display_primaries_x[2] = ConvertChromaticityToSmpte(blueX);    // Blue
-    metadata.display_primaries_y[2] = ConvertChromaticityToSmpte(blueY);
-    
-    // Convert manual white point
-    metadata.white_point_x = ConvertChromaticityToSmpte(whiteX);
-    metadata.white_point_y = ConvertChromaticityToSmpte(whiteY);
-    
-    // Convert manual luminance values
-    metadata.max_display_mastering_luminance = ConvertLuminanceToSmpte(maxDisplayMasteringLuminance);
-    metadata.min_display_mastering_luminance = ConvertLuminanceToSmpte(minDisplayMasteringLuminance);
-    
-    // Use configured content light levels
-    metadata.max_content_light_level = static_cast<UINT16>(maxContentLightLevel);
-    metadata.max_frame_avg_light_level = static_cast<UINT16>(maxFrameAvgLightLevel);
-    
-    // Mark as valid if HDR10 metadata is enabled and color primaries are enabled
-    metadata.isValid = hdr10StaticMetadataEnabled && colorPrimariesEnabled;
-    
-    return metadata;
+	VddHdrMetadata metadata = {};
+	
+	// Convert manual chromaticity coordinates
+	metadata.display_primaries_x[0] = ConvertChromaticityToSmpte(redX);     // Red
+	metadata.display_primaries_y[0] = ConvertChromaticityToSmpte(redY);
+	metadata.display_primaries_x[1] = ConvertChromaticityToSmpte(greenX);   // Green  
+	metadata.display_primaries_y[1] = ConvertChromaticityToSmpte(greenY);
+	metadata.display_primaries_x[2] = ConvertChromaticityToSmpte(blueX);    // Blue
+	metadata.display_primaries_y[2] = ConvertChromaticityToSmpte(blueY);
+	
+	// Convert manual white point
+	metadata.white_point_x = ConvertChromaticityToSmpte(whiteX);
+	metadata.white_point_y = ConvertChromaticityToSmpte(whiteY);
+	
+	// Convert manual luminance values
+	metadata.max_display_mastering_luminance = ConvertLuminanceToSmpte(maxDisplayMasteringLuminance);
+	metadata.min_display_mastering_luminance = ConvertLuminanceToSmpte(minDisplayMasteringLuminance);
+	
+	// Use configured content light levels
+	metadata.max_content_light_level = static_cast<UINT16>(maxContentLightLevel);
+	metadata.max_frame_avg_light_level = static_cast<UINT16>(maxFrameAvgLightLevel);
+	
+	// Mark as valid if HDR10 metadata is enabled and color primaries are enabled
+	metadata.isValid = hdr10StaticMetadataEnabled && colorPrimariesEnabled;
+	
+	return metadata;
 }
 
 // === ENHANCED MODE MANAGEMENT FUNCTIONS ===
 
 // Generate modes from EDID with advanced filtering and optimization
 vector<tuple<int, int, int, int>> GenerateModesFromEdid(const EdidProfileData& profile) {
-    vector<tuple<int, int, int, int>> generatedModes;
-    
-    if (!autoResolutionsEnabled) {
-        vddlog("i", "Auto resolutions disabled, skipping EDID mode generation");
-        return generatedModes;
-    }
-    
-    for (const auto& mode : profile.modes) {
-        int width = get<0>(mode);
-        int height = get<1>(mode);
-        int refreshRateMultiplier = get<2>(mode);
-        int nominalRefreshRate = get<3>(mode);
-        
-        // Apply comprehensive filtering
-        bool passesFilter = true;
-        
-        // Resolution range filtering
-        if (width < minResolutionWidth || width > maxResolutionWidth ||
-            height < minResolutionHeight || height > maxResolutionHeight) {
-            passesFilter = false;
-        }
-        
-        // Refresh rate filtering
-        if (nominalRefreshRate < minRefreshRate || nominalRefreshRate > maxRefreshRate) {
-            passesFilter = false;
-        }
-        
-        // Fractional rate filtering
-        if (excludeFractionalRates && refreshRateMultiplier != 1000) {
-            passesFilter = false;
-        }
-        
-        // Add custom quality filtering
-        if (passesFilter) {
-            // Prefer standard aspect ratios for better compatibility
-            double aspectRatio = static_cast<double>(width) / height;
-            bool isStandardAspect = (abs(aspectRatio - 16.0/9.0) < 0.01) ||  // 16:9
-                                   (abs(aspectRatio - 16.0/10.0) < 0.01) ||  // 16:10
-                                   (abs(aspectRatio - 4.0/3.0) < 0.01) ||    // 4:3
-                                   (abs(aspectRatio - 21.0/9.0) < 0.01);     // 21:9
-            
-            // Log non-standard aspect ratios for information
-            if (!isStandardAspect) {
-                stringstream ss;
-                ss << "Including non-standard aspect ratio mode: " << width << "x" << height 
-                   << " (ratio: " << fixed << setprecision(2) << aspectRatio << ")";
-                vddlog("d", ss.str().c_str());
-            }
-            
-            generatedModes.push_back(mode);
-        }
-    }
-    
-    // Sort modes by preference (resolution, then refresh rate)
-    sort(generatedModes.begin(), generatedModes.end(), 
-         [](const tuple<int, int, int, int>& a, const tuple<int, int, int, int>& b) {
-             // Primary sort: resolution (area)
-             int areaA = get<0>(a) * get<1>(a);
-             int areaB = get<0>(b) * get<1>(b);
-             if (areaA != areaB) return areaA > areaB;  // Larger resolution first
-             
-             // Secondary sort: refresh rate
-             return get<3>(a) > get<3>(b);  // Higher refresh rate first
-         });
-    
-    stringstream ss;
-    ss << "Generated " << generatedModes.size() << " modes from EDID (filtered from " << profile.modes.size() << " total)";
-    vddlog("i", ss.str().c_str());
-    
-    return generatedModes;
+	vector<tuple<int, int, int, int>> generatedModes;
+	
+	if (!autoResolutionsEnabled) {
+		vddlog("i", "Auto resolutions disabled, skipping EDID mode generation");
+		return generatedModes;
+	}
+	
+	for (const auto& mode : profile.modes) {
+		int width = get<0>(mode);
+		int height = get<1>(mode);
+		int refreshRateMultiplier = get<2>(mode);
+		int nominalRefreshRate = get<3>(mode);
+		
+		// Apply comprehensive filtering
+		bool passesFilter = true;
+		
+		// Resolution range filtering
+		if (width < minResolutionWidth || width > maxResolutionWidth ||
+			height < minResolutionHeight || height > maxResolutionHeight) {
+			passesFilter = false;
+		}
+		
+		// Refresh rate filtering
+		if (nominalRefreshRate < minRefreshRate || nominalRefreshRate > maxRefreshRate) {
+			passesFilter = false;
+		}
+		
+		// Fractional rate filtering
+		if (excludeFractionalRates && refreshRateMultiplier != 1000) {
+			passesFilter = false;
+		}
+		
+		// Add custom quality filtering
+		if (passesFilter) {
+			// Prefer standard aspect ratios for better compatibility
+			double aspectRatio = static_cast<double>(width) / height;
+			bool isStandardAspect = (abs(aspectRatio - 16.0/9.0) < 0.01) ||  // 16:9
+								   (abs(aspectRatio - 16.0/10.0) < 0.01) ||  // 16:10
+								   (abs(aspectRatio - 4.0/3.0) < 0.01) ||    // 4:3
+								   (abs(aspectRatio - 21.0/9.0) < 0.01);     // 21:9
+			
+			// Log non-standard aspect ratios for information
+			if (!isStandardAspect) {
+				stringstream ss;
+				ss << "Including non-standard aspect ratio mode: " << width << "x" << height 
+				   << " (ratio: " << fixed << setprecision(2) << aspectRatio << ")";
+				vddlog("d", ss.str().c_str());
+			}
+			
+			generatedModes.push_back(mode);
+		}
+	}
+	
+	// Sort modes by preference (resolution, then refresh rate)
+	sort(generatedModes.begin(), generatedModes.end(), 
+		 [](const tuple<int, int, int, int>& a, const tuple<int, int, int, int>& b) {
+			 // Primary sort: resolution (area)
+			 int areaA = get<0>(a) * get<1>(a);
+			 int areaB = get<0>(b) * get<1>(b);
+			 if (areaA != areaB) return areaA > areaB;  // Larger resolution first
+			 
+			 // Secondary sort: refresh rate
+			 return get<3>(a) > get<3>(b);  // Higher refresh rate first
+		 });
+	
+	stringstream ss;
+	ss << "Generated " << generatedModes.size() << " modes from EDID (filtered from " << profile.modes.size() << " total)";
+	vddlog("i", ss.str().c_str());
+	
+	return generatedModes;
 }
 
 // Find and validate preferred mode from EDID
 tuple<int, int, int, int> FindPreferredModeFromEdid(const EdidProfileData& profile, 
-                                                   const vector<tuple<int, int, int, int>>& availableModes) {
-    // Default fallback mode
-    tuple<int, int, int, int> preferredMode = make_tuple(fallbackWidth, fallbackHeight, 1000, fallbackRefresh);
-    
-    if (!useEdidPreferred) {
-        vddlog("i", "EDID preferred mode disabled, using fallback");
-        return preferredMode;
-    }
-    
-    // Look for EDID preferred mode in available modes
-    for (const auto& mode : availableModes) {
-        if (get<0>(mode) == profile.preferredWidth && 
-            get<1>(mode) == profile.preferredHeight) {
-            // Found matching resolution, use it
-            preferredMode = mode;
-            
-            stringstream ss;
-            ss << "Found EDID preferred mode: " << profile.preferredWidth << "x" << profile.preferredHeight 
-               << "@" << get<3>(mode) << "Hz";
-            vddlog("i", ss.str().c_str());
-            break;
-        }
-    }
-    
-    return preferredMode;
+												   const vector<tuple<int, int, int, int>>& availableModes) {
+	// Default fallback mode
+	tuple<int, int, int, int> preferredMode = make_tuple(fallbackWidth, fallbackHeight, 1000, fallbackRefresh);
+	
+	if (!useEdidPreferred) {
+		vddlog("i", "EDID preferred mode disabled, using fallback");
+		return preferredMode;
+	}
+	
+	// Look for EDID preferred mode in available modes
+	for (const auto& mode : availableModes) {
+		if (get<0>(mode) == profile.preferredWidth && 
+			get<1>(mode) == profile.preferredHeight) {
+			// Found matching resolution, use it
+			preferredMode = mode;
+			
+			stringstream ss;
+			ss << "Found EDID preferred mode: " << profile.preferredWidth << "x" << profile.preferredHeight 
+			   << "@" << get<3>(mode) << "Hz";
+			vddlog("i", ss.str().c_str());
+			break;
+		}
+	}
+	
+	return preferredMode;
 }
 
 // Merge and optimize mode lists
 vector<tuple<int, int, int, int>> MergeAndOptimizeModes(const vector<tuple<int, int, int, int>>& manualModes,
-                                                        const vector<tuple<int, int, int, int>>& edidModes) {
-    vector<tuple<int, int, int, int>> mergedModes;
-    
-    if (sourcePriority == L"edid") {
-        mergedModes = edidModes;
-        vddlog("i", "Using EDID-only mode list");
-    }
-    else if (sourcePriority == L"manual") {
-        mergedModes = manualModes;
-        vddlog("i", "Using manual-only mode list");
-    }
-    else if (sourcePriority == L"combined") {
-        // Start with manual modes
-        mergedModes = manualModes;
-        
-        // Add EDID modes that don't duplicate manual modes
-        for (const auto& edidMode : edidModes) {
-            bool isDuplicate = false;
-            for (const auto& manualMode : manualModes) {
-                if (get<0>(edidMode) == get<0>(manualMode) && 
-                    get<1>(edidMode) == get<1>(manualMode) && 
-                    get<3>(edidMode) == get<3>(manualMode)) {
-                    isDuplicate = true;
-                    break;
-                }
-            }
-            if (!isDuplicate) {
-                mergedModes.push_back(edidMode);
-            }
-        }
-        
-        stringstream ss;
-        ss << "Combined modes: " << manualModes.size() << " manual + " 
-           << (mergedModes.size() - manualModes.size()) << " unique EDID = " << mergedModes.size() << " total";
-        vddlog("i", ss.str().c_str());
-    }
-    
-    return mergedModes;
+														const vector<tuple<int, int, int, int>>& edidModes) {
+	vector<tuple<int, int, int, int>> mergedModes;
+	
+	if (sourcePriority == L"edid") {
+		mergedModes = edidModes;
+		vddlog("i", "Using EDID-only mode list");
+	}
+	else if (sourcePriority == L"manual") {
+		mergedModes = manualModes;
+		vddlog("i", "Using manual-only mode list");
+	}
+	else if (sourcePriority == L"combined") {
+		// Start with manual modes
+		mergedModes = manualModes;
+		
+		// Add EDID modes that don't duplicate manual modes
+		for (const auto& edidMode : edidModes) {
+			bool isDuplicate = false;
+			for (const auto& manualMode : manualModes) {
+				if (get<0>(edidMode) == get<0>(manualMode) && 
+					get<1>(edidMode) == get<1>(manualMode) && 
+					get<3>(edidMode) == get<3>(manualMode)) {
+					isDuplicate = true;
+					break;
+				}
+			}
+			if (!isDuplicate) {
+				mergedModes.push_back(edidMode);
+			}
+		}
+		
+		stringstream ss;
+		ss << "Combined modes: " << manualModes.size() << " manual + " 
+		   << (mergedModes.size() - manualModes.size()) << " unique EDID = " << mergedModes.size() << " total";
+		vddlog("i", ss.str().c_str());
+	}
+	
+	return mergedModes;
 }
 
 // Optimize mode list for performance and compatibility
 vector<tuple<int, int, int, int>> OptimizeModeList(const vector<tuple<int, int, int, int>>& modes,
-                                                   const tuple<int, int, int, int>& preferredMode) {
-    vector<tuple<int, int, int, int>> optimizedModes = modes;
-    
-    // Remove preferred mode from list if it exists, we'll add it at the front
-    optimizedModes.erase(
-        remove_if(optimizedModes.begin(), optimizedModes.end(),
-                  [&preferredMode](const tuple<int, int, int, int>& mode) {
-                      return get<0>(mode) == get<0>(preferredMode) && 
-                             get<1>(mode) == get<1>(preferredMode) &&
-                             get<3>(mode) == get<3>(preferredMode);
-                  }),
-        optimizedModes.end());
-    
-    // Insert preferred mode at the beginning
-    optimizedModes.insert(optimizedModes.begin(), preferredMode);
-    
-    // Remove duplicate modes (same resolution and refresh rate)
-    sort(optimizedModes.begin(), optimizedModes.end());
-    optimizedModes.erase(unique(optimizedModes.begin(), optimizedModes.end(),
-                                [](const tuple<int, int, int, int>& a, const tuple<int, int, int, int>& b) {
-                                    return get<0>(a) == get<0>(b) && 
-                                           get<1>(a) == get<1>(b) && 
-                                           get<3>(a) == get<3>(b);
-                                }),
-                         optimizedModes.end());
-    
-    // Limit total number of modes for performance (Windows typically supports 20-50 modes)
-    const size_t maxModes = 32;
-    if (optimizedModes.size() > maxModes) {
-        optimizedModes.resize(maxModes);
-        stringstream ss;
-        ss << "Limited mode list to " << maxModes << " modes for optimal performance";
-        vddlog("i", ss.str().c_str());
-    }
-    
-    return optimizedModes;
+												   const tuple<int, int, int, int>& preferredMode) {
+	vector<tuple<int, int, int, int>> optimizedModes = modes;
+	
+	// Remove preferred mode from list if it exists, we'll add it at the front
+	optimizedModes.erase(
+		remove_if(optimizedModes.begin(), optimizedModes.end(),
+				  [&preferredMode](const tuple<int, int, int, int>& mode) {
+					  return get<0>(mode) == get<0>(preferredMode) && 
+							 get<1>(mode) == get<1>(preferredMode) &&
+							 get<3>(mode) == get<3>(preferredMode);
+				  }),
+		optimizedModes.end());
+	
+	// Insert preferred mode at the beginning
+	optimizedModes.insert(optimizedModes.begin(), preferredMode);
+	
+	// Remove duplicate modes (same resolution and refresh rate)
+	sort(optimizedModes.begin(), optimizedModes.end());
+	optimizedModes.erase(unique(optimizedModes.begin(), optimizedModes.end(),
+								[](const tuple<int, int, int, int>& a, const tuple<int, int, int, int>& b) {
+									return get<0>(a) == get<0>(b) && 
+										   get<1>(a) == get<1>(b) && 
+										   get<3>(a) == get<3>(b);
+								}),
+						 optimizedModes.end());
+	
+	// Limit total number of modes for performance (Windows typically supports 20-50 modes)
+	const size_t maxModes = 32;
+	if (optimizedModes.size() > maxModes) {
+		optimizedModes.resize(maxModes);
+		stringstream ss;
+		ss << "Limited mode list to " << maxModes << " modes for optimal performance";
+		vddlog("i", ss.str().c_str());
+	}
+	
+	return optimizedModes;
 }
 
 // Enhanced mode validation with detailed reporting
 bool ValidateModeList(const vector<tuple<int, int, int, int>>& modes) {
-    if (modes.empty()) {
-        vddlog("e", "Mode list is empty - this will cause display driver failure");
-        return false;
-    }
-    
-    stringstream validationReport;
-    validationReport << "=== MODE LIST VALIDATION REPORT ===\n"
-                    << "Total modes: " << modes.size() << "\n";
-    
-    // Analyze resolution distribution
-    map<pair<int, int>, int> resolutionCount;
-    map<int, int> refreshRateCount;
-    
-    for (const auto& mode : modes) {
-        pair<int, int> resolution = {get<0>(mode), get<1>(mode)};
-        resolutionCount[resolution]++;
-        refreshRateCount[get<3>(mode)]++;
-    }
-    
-    validationReport << "Unique resolutions: " << resolutionCount.size() << "\n";
-    validationReport << "Unique refresh rates: " << refreshRateCount.size() << "\n";
-    validationReport << "Preferred mode: " << get<0>(modes[0]) << "x" << get<1>(modes[0]) 
-                    << "@" << get<3>(modes[0]) << "Hz";
-    
-    vddlog("i", validationReport.str().c_str());
-    
-    return true;
+	if (modes.empty()) {
+		vddlog("e", "Mode list is empty - this will cause display driver failure");
+		return false;
+	}
+	
+	stringstream validationReport;
+	validationReport << "=== MODE LIST VALIDATION REPORT ===\n"
+					<< "Total modes: " << modes.size() << "\n";
+	
+	// Analyze resolution distribution
+	map<pair<int, int>, int> resolutionCount;
+	map<int, int> refreshRateCount;
+	
+	for (const auto& mode : modes) {
+		pair<int, int> resolution = {get<0>(mode), get<1>(mode)};
+		resolutionCount[resolution]++;
+		refreshRateCount[get<3>(mode)]++;
+	}
+	
+	validationReport << "Unique resolutions: " << resolutionCount.size() << "\n";
+	validationReport << "Unique refresh rates: " << refreshRateCount.size() << "\n";
+	validationReport << "Preferred mode: " << get<0>(modes[0]) << "x" << get<1>(modes[0]) 
+					<< "@" << get<3>(modes[0]) << "Hz";
+	
+	vddlog("i", validationReport.str().c_str());
+	
+	return true;
 }
 
 bool LoadEdidProfile(const wstring& profilePath, EdidProfileData& profile) {
@@ -2710,33 +2710,33 @@ void loadSettings() {
 	const wstring optionsname = confpath + L"\\option.txt";
 	ifstream ifs(optionsname);
 	if (ifs.is_open()) {
-    string line;
-    if (getline(ifs, line) && !line.empty()) {
-        numVirtualDisplays = stoi(line);
-        vector<tuple<int, int, int, int>> res; 
+	string line;
+	if (getline(ifs, line) && !line.empty()) {
+		numVirtualDisplays = stoi(line);
+		vector<tuple<int, int, int, int>> res; 
 
-        while (getline(ifs, line)) {
-            vector<string> strvec = split(line, ',');
-            if (strvec.size() == 3 && strvec[0].substr(0, 1) != "#") {
-                int vsync_num, vsync_den;
-                float_to_vsync(stof(strvec[2]), vsync_num, vsync_den); 
-                res.push_back({ stoi(strvec[0]), stoi(strvec[1]), vsync_num, vsync_den });
-            }
-        }
+		while (getline(ifs, line)) {
+			vector<string> strvec = split(line, ',');
+			if (strvec.size() == 3 && strvec[0].substr(0, 1) != "#") {
+				int vsync_num, vsync_den;
+				float_to_vsync(stof(strvec[2]), vsync_num, vsync_den); 
+				res.push_back({ stoi(strvec[0]), stoi(strvec[1]), vsync_num, vsync_den });
+			}
+		}
 
-        vddlog("i", "Using option.txt");
-        monitorModes = res;
-        for (const auto& mode : res) {
-            int width, height, vsync_num, vsync_den;
-            tie(width, height, vsync_num, vsync_den) = mode;
-            stringstream ss;
-            ss << "Resolution: " << width << "x" << height << " @ " << vsync_num << "/" << vsync_den << "Hz";
-            vddlog("d", ss.str().c_str());
-        }
+		vddlog("i", "Using option.txt");
+		monitorModes = res;
+		for (const auto& mode : res) {
+			int width, height, vsync_num, vsync_den;
+			tie(width, height, vsync_num, vsync_den) = mode;
+			stringstream ss;
+			ss << "Resolution: " << width << "x" << height << " @ " << vsync_num << "/" << vsync_den << "Hz";
+			vddlog("d", ss.str().c_str());
+		}
 		return;
-    } else {
-        vddlog("w", "option.txt is empty or the first line is invalid. Enabling Fallback");
-    }
+	} else {
+		vddlog("w", "option.txt is empty or the first line is invalid. Enabling Fallback");
+	}
 }
 
 

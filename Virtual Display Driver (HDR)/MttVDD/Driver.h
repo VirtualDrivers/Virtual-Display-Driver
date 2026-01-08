@@ -3,7 +3,6 @@
 #define NOMINMAX
 #include <windows.h>
 #include <bugcodes.h>
-#include <wudfwdm.h>
 #include <wdf.h>
 #include <iddcx.h>
 
