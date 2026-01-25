@@ -15,6 +15,7 @@
 
     <gpu>
         <friendlyname>default</friendlyname>
+// #---         <igpu-shader>false</igpu-shader>
     </gpu>
 
     <!-- === RESOLUTION CONFIGURATION === -->
