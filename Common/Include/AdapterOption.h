@@ -1,8 +1,8 @@
 #pragma once
 
-#include <wrl/client.h> 	// For ComPtr
-#include <dxgi.h>       	// For IDXGIAdapter, IDXGIFactory1
-#include <algorithm>    	// For sort
+#include <wrl/client.h>     // For ComPtr
+#include <dxgi.h>           // For IDXGIAdapter, IDXGIFactory1
+#include <algorithm>        // For sort
 #include <setupapi.h>
 #include <devguid.h>
 #include <devpropdef.h>

@@ -53,43 +53,50 @@
     <Platform Condition="'$(Platform)' == ''">Win32</Platform>
     <RootNamespace>MttVDD</RootNamespace>
   </PropertyGroup>
+  <PropertyGroup Label="BuildFallback">
+    <VddPlatformToolset Condition="'$(PlatformToolset)' != ''">$(PlatformToolset)</VddPlatformToolset>
+    <VddWdkToolsetProps>$(VCTargetsPath)Platforms\$(Platform)\PlatformToolsets\WindowsUserModeDriver10.0\Toolset.props</VddWdkToolsetProps>
+    <VddPlatformToolset Condition="'$(VddPlatformToolset)' == '' and Exists('$(VddWdkToolsetProps)')">WindowsUserModeDriver10.0</VddPlatformToolset>
+    <VddPlatformToolset Condition="'$(VddPlatformToolset)' == ''">v145</VddPlatformToolset>
+    <UseEnv Condition="'$(VddPlatformToolset)' != 'WindowsUserModeDriver10.0' and '$(VSCMD_VER)' != ''">true</UseEnv>
+  </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
-    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <PlatformToolset>$(VddPlatformToolset)</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
@@ -168,6 +175,16 @@
     <UMDF_VERSION_MINOR>25</UMDF_VERSION_MINOR>
     <UMDF_MINIMUM_VERSION_REQUIRED>25</UMDF_MINIMUM_VERSION_REQUIRED>
   </PropertyGroup>
+  <PropertyGroup Label="SdkPathResolution">
+    <VddTargetPlatformVersion Condition="'$(VddTargetPlatformVersion)' == '' and '$(TargetPlatformVersion)' != ''">$(TargetPlatformVersion)</VddTargetPlatformVersion>
+    <VddTargetPlatformVersion Condition="'$(VddTargetPlatformVersion)' == '' and '$(WindowsTargetPlatformVersion)' != ''">$(WindowsTargetPlatformVersion)</VddTargetPlatformVersion>
+    <VddIddCxIncludeDir Condition="'$(VddIddCxIncludeDir)' == '' and '$(VddTargetPlatformVersion)' != '' and Exists('$(WindowsSdkDir)Include\$(VddTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)\IddCx.h')">$(WindowsSdkDir)Include\$(VddTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)</VddIddCxIncludeDir>
+    <VddIddCxIncludeDir Condition="'$(VddIddCxIncludeDir)' == '' and Exists('$(WindowsSdkDir)Include\10.0.26100.0\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)\IddCx.h')">$(WindowsSdkDir)Include\10.0.26100.0\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)</VddIddCxIncludeDir>
+    <VddIddCxLibDir Condition="'$(VddIddCxLibDir)' == '' and '$(VddTargetPlatformVersion)' != '' and Exists('$(WindowsSdkDir)Lib\$(VddTargetPlatformVersion)\um\$(Platform)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)\IddCxStub.lib')">$(WindowsSdkDir)Lib\$(VddTargetPlatformVersion)\um\$(Platform)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)</VddIddCxLibDir>
+    <VddIddCxLibDir Condition="'$(VddIddCxLibDir)' == '' and Exists('$(WindowsSdkDir)Lib\10.0.26100.0\um\$(Platform)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)\IddCxStub.lib')">$(WindowsSdkDir)Lib\10.0.26100.0\um\$(Platform)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR)</VddIddCxLibDir>
+    <VddBaseUmLibDir Condition="'$(VddBaseUmLibDir)' == '' and '$(VddTargetPlatformVersion)' != '' and Exists('$(WindowsSdkDir)Lib\$(VddTargetPlatformVersion)\um\$(Platform)\wpprecorderum.lib')">$(WindowsSdkDir)Lib\$(VddTargetPlatformVersion)\um\$(Platform)</VddBaseUmLibDir>
+    <VddBaseUmLibDir Condition="'$(VddBaseUmLibDir)' == '' and Exists('$(WindowsSdkDir)Lib\10.0.26100.0\um\$(Platform)\wpprecorderum.lib')">$(WindowsSdkDir)Lib\10.0.26100.0\um\$(Platform)</VddBaseUmLibDir>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
@@ -219,10 +236,11 @@
       <WppScanConfigurationData Condition="'%(ClCompile.ScanConfigurationData)' == ''">trace.h</WppScanConfigurationData>
       <ExceptionHandling>Async</ExceptionHandling>
       <EnablePREfast>true</EnablePREfast>
-      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(TargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\10.0.26100.0\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);$(WindowsSdkDir)Include\$(TargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(WindowsSdkDir)Lib\10.0.26100.0\um\$(PlatformTarget);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Lib\10.0.26100.0\um\$(PlatformTarget)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);$(WindowsSdkDir)Lib\$(TargetPlatformVersion)\um\$(PlatformTarget)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -232,10 +250,11 @@
       <WppScanConfigurationData Condition="'%(ClCompile.ScanConfigurationData)' == ''">trace.h</WppScanConfigurationData>
       <ExceptionHandling>Async</ExceptionHandling>
       <EnablePREfast>true</EnablePREfast>
-      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(TargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\10.0.26100.0\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);$(WindowsSdkDir)Include\$(TargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(WindowsSdkDir)Lib\10.0.26100.0\um\$(PlatformTarget);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Lib\10.0.26100.0\um\$(PlatformTarget)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);$(WindowsSdkDir)Lib\$(TargetPlatformVersion)\um\$(PlatformTarget)\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -246,17 +265,25 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <EnablePREfast>true</EnablePREfast>
       <AdditionalOptions>/D_ATL_NO_WIN_SUPPORT /DUMDF_DRIVER /DIDDCX_VERSION_MAJOR=1 /DIDDCX_VERSION_MINOR=4 /DIDDCX_MINIMUM_VERSION_REQUIRED=4 %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(VddTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(VddIddCxIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VddBaseUmLibDir);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(VddIddCxLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <DriverSign>
       <FileDigestAlgorithm>SHA1</FileDigestAlgorithm>
     </DriverSign>
     <PostBuildEvent>
-      <Command>copy "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)\MttVDD"</Command>
+      <Command>if exist "$(TargetDir)MttVDD" if not exist "$(TargetDir)MttVDD\NUL" del /Q "$(TargetDir)MttVDD"
+if not exist "$(TargetDir)MttVDD" mkdir "$(TargetDir)MttVDD"
+copy /Y "$(TargetPath)" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)MttVDD.inf" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)MttVDD\"
+if exist "$(TargetDir)$(TargetName).pdb" copy /Y "$(TargetDir)$(TargetName).pdb" "$(TargetDir)MttVDD\"
+if not exist "$(TargetDir)MttVDD\Shaders" mkdir "$(TargetDir)MttVDD\Shaders"
+xcopy /Y /I /Q "$(ProjectDir)..\..\Common\Include\Shaders\*.hlsl" "$(TargetDir)MttVDD\Shaders\"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -267,17 +294,25 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <EnablePREfast>true</EnablePREfast>
       <AdditionalOptions>/D_ATL_NO_WIN_SUPPORT /DUMDF_DRIVER /DIDDCX_VERSION_MAJOR=1 /DIDDCX_VERSION_MINOR=10 /DIDDCX_MINIMUM_VERSION_REQUIRED=3 %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(VddTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(VddIddCxIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VddBaseUmLibDir);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(VddIddCxLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <DriverSign>
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
     </DriverSign>
     <PostBuildEvent>
-      <Command>copy "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)\MttVDD"</Command>
+      <Command>if exist "$(TargetDir)MttVDD" if not exist "$(TargetDir)MttVDD\NUL" del /Q "$(TargetDir)MttVDD"
+if not exist "$(TargetDir)MttVDD" mkdir "$(TargetDir)MttVDD"
+copy /Y "$(TargetPath)" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)MttVDD.inf" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)MttVDD\"
+if exist "$(TargetDir)$(TargetName).pdb" copy /Y "$(TargetDir)$(TargetName).pdb" "$(TargetDir)MttVDD\"
+if not exist "$(TargetDir)MttVDD\Shaders" mkdir "$(TargetDir)MttVDD\Shaders"
+xcopy /Y /I /Q "$(ProjectDir)..\..\Common\Include\Shaders\*.hlsl" "$(TargetDir)MttVDD\Shaders\"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">
@@ -289,7 +324,8 @@
       <EnablePREfast>true</EnablePREfast>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VddBaseUmLibDir);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(VddIddCxLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">
@@ -301,7 +337,8 @@
       <EnablePREfast>true</EnablePREfast>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VddBaseUmLibDir);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(VddIddCxLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
@@ -312,17 +349,25 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <EnablePREfast>true</EnablePREfast>
       <AdditionalOptions>/D_ATL_NO_WIN_SUPPORT /DUMDF_DRIVER /DIDDCX_VERSION_MAJOR=1 /DIDDCX_VERSION_MINOR=4 /DIDDCX_MINIMUM_VERSION_REQUIRED=4 %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(VddTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(VddIddCxIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VddBaseUmLibDir);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(VddIddCxLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <DriverSign>
       <FileDigestAlgorithm>SHA1</FileDigestAlgorithm>
     </DriverSign>
     <PostBuildEvent>
-      <Command>copy "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)\MttVDD"</Command>
+      <Command>if exist "$(TargetDir)MttVDD" if not exist "$(TargetDir)MttVDD\NUL" del /Q "$(TargetDir)MttVDD"
+if not exist "$(TargetDir)MttVDD" mkdir "$(TargetDir)MttVDD"
+copy /Y "$(TargetPath)" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)MttVDD.inf" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)MttVDD\"
+if exist "$(TargetDir)$(TargetName).pdb" copy /Y "$(TargetDir)$(TargetName).pdb" "$(TargetDir)MttVDD\"
+if not exist "$(TargetDir)MttVDD\Shaders" mkdir "$(TargetDir)MttVDD\Shaders"
+xcopy /Y /I /Q "$(ProjectDir)..\..\Common\Include\Shaders\*.hlsl" "$(TargetDir)MttVDD\Shaders\"</Command>
     </PostBuildEvent>
     <Inf>
       <DateStamp>10/16/2024</DateStamp>
@@ -336,17 +381,25 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <EnablePREfast>true</EnablePREfast>
       <AdditionalOptions>/D_ATL_NO_WIN_SUPPORT /DUMDF_DRIVER /DIDDCX_VERSION_MAJOR=1 /DIDDCX_VERSION_MINOR=10 /DIDDCX_MINIMUM_VERSION_REQUIRED=3 %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um\iddcx\$(IDDCX_VERSION_MAJOR).$(IDDCX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(WindowsSdkDir)Include\$(VddTargetPlatformVersion)\wdf\umdf\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(ProjectDir)..\..\ThirdParty\Windows-Driver-Frameworks\src\publicinc\wdf\umdf\2.15;$(ProjectDir)..\..\Common\Include;$(VddIddCxIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);OneCoreUAP.lib;avrt.lib;setupapi.lib;ntdll.lib;WdfDriverStubUm.lib;IddCxStub.lib;wpprecorderum.lib;d3dcompiler.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VddBaseUmLibDir);$(WindowsSdkDir)Lib\wdf\umdf\$(PlatformTarget)\$(UMDF_VERSION_MAJOR).$(UMDF_VERSION_MINOR);$(VddIddCxLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <DriverSign>
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
     </DriverSign>
     <PostBuildEvent>
-      <Command>copy "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)\MttVDD"</Command>
+      <Command>if exist "$(TargetDir)MttVDD" if not exist "$(TargetDir)MttVDD\NUL" del /Q "$(TargetDir)MttVDD"
+if not exist "$(TargetDir)MttVDD" mkdir "$(TargetDir)MttVDD"
+copy /Y "$(TargetPath)" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)MttVDD.inf" "$(TargetDir)MttVDD\"
+copy /Y "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)MttVDD\"
+if exist "$(TargetDir)$(TargetName).pdb" copy /Y "$(TargetDir)$(TargetName).pdb" "$(TargetDir)MttVDD\"
+if not exist "$(TargetDir)MttVDD\Shaders" mkdir "$(TargetDir)MttVDD\Shaders"
+xcopy /Y /I /Q "$(ProjectDir)..\..\Common\Include\Shaders\*.hlsl" "$(TargetDir)MttVDD\Shaders\"</Command>
     </PostBuildEvent>
     <Inf>
       <DateStamp>10/16/2024</DateStamp>

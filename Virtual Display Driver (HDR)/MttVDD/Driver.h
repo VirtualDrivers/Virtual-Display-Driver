@@ -9,6 +9,7 @@
 
 #include <dxgi1_5.h>
 #include <d3d11_2.h>
+#include <d3dcompiler.h>
 #include <avrt.h>
 #include <wrl.h>
 
@@ -63,6 +64,20 @@ namespace Microsoft
             Microsoft::WRL::ComPtr<IDXGIAdapter1> Adapter;
             Microsoft::WRL::ComPtr<ID3D11Device> Device;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> DeviceContext;
+            Microsoft::WRL::ComPtr<ID3D11VertexShader> ShaderVertexShader;
+            Microsoft::WRL::ComPtr<ID3D11PixelShader> ShaderPixelShader;
+            Microsoft::WRL::ComPtr<ID3D11SamplerState> ShaderSamplerState;
+            Microsoft::WRL::ComPtr<ID3D11Buffer> ShaderConstantBuffer;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> ShaderInputTexture;
+            Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> ShaderInputView;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> ShaderOutputTexture;
+            Microsoft::WRL::ComPtr<ID3D11RenderTargetView> ShaderOutputView;
+            std::wstring LoadedShaderPath;
+            ULONGLONG LoadedShaderTimestamp = 0;
+            ULONGLONG LastShaderLoadAttemptTick = 0;
+            UINT ShaderTextureWidth = 0;
+            UINT ShaderTextureHeight = 0;
+            DXGI_FORMAT ShaderTextureFormat = DXGI_FORMAT_UNKNOWN;
         };
 
         /// <summary>

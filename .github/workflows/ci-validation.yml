@@ -112,6 +112,62 @@ jobs:
           $umdfMinor = ($umdfBest.Name -split '\.')[1]
           Write-Output "Using UMDF version: $($umdfBest.Name) (minor=$umdfMinor) from $($umdfBest.FullName)"
 
+          function Get-VersionOrZero([string]$value) {
+            try {
+              return [version]$value
+            } catch {
+              return [version]"0.0"
+            }
+          }
+
+          $platformLibSegment = switch ("${{ matrix.platform }}") {
+            "x64" { "x64" }
+            "ARM64" { "arm64" }
+            "ARM" { "arm" }
+            default { "${{ matrix.platform }}".ToLowerInvariant() }
+          }
+
+          $iddcxInclude =
+            Get-ChildItem -Path (Join-Path $env:WINDOWS_SDK_DIR "Include") -Recurse -Filter "IddCx.h" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\iddcx\\\d+\.\d+$' } |
+            Sort-Object -Property `
+              @{ Expression = { Get-VersionOrZero ([regex]::Match($_.FullName, '\\(\d+\.\d+\.\d+\.\d+)\\').Groups[1].Value) }; Descending = $true }, `
+              @{ Expression = { Get-VersionOrZero $_.Directory.Name }; Descending = $true } |
+            Select-Object -First 1
+
+          if (-not $iddcxInclude) {
+            throw "IddCx include directory not found anywhere under $env:WINDOWS_SDK_DIR\Include"
+          }
+
+          $iddcxLibPattern = "\\um\\" + [regex]::Escape($platformLibSegment) + "\\iddcx\\\d+\.\d+$"
+          $iddcxLib =
+            Get-ChildItem -Path (Join-Path $env:WINDOWS_SDK_DIR "Lib") -Recurse -Filter "IddCxStub.lib" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match $iddcxLibPattern } |
+            Sort-Object -Property `
+              @{ Expression = { Get-VersionOrZero ([regex]::Match($_.FullName, '\\(\d+\.\d+\.\d+\.\d+)\\').Groups[1].Value) }; Descending = $true }, `
+              @{ Expression = { Get-VersionOrZero $_.Directory.Name }; Descending = $true } |
+            Select-Object -First 1
+
+          if (-not $iddcxLib) {
+            throw "IddCxStub.lib not found for platform $platformLibSegment anywhere under $env:WINDOWS_SDK_DIR\Lib"
+          }
+
+          $baseUmLibPattern = "\\um\\" + [regex]::Escape($platformLibSegment) + "$"
+          $baseUmLib =
+            Get-ChildItem -Path (Join-Path $env:WINDOWS_SDK_DIR "Lib") -Recurse -Filter "wpprecorderum.lib" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match $baseUmLibPattern } |
+            Sort-Object -Property `
+              @{ Expression = { Get-VersionOrZero ([regex]::Match($_.FullName, '\\(\d+\.\d+\.\d+\.\d+)\\').Groups[1].Value) }; Descending = $true } |
+            Select-Object -First 1
+
+          if (-not $baseUmLib) {
+            throw "Base UM library directory not found for platform $platformLibSegment under $env:WINDOWS_SDK_DIR\Lib"
+          }
+
+          Write-Output "Using IddCx include: $($iddcxInclude.Directory.FullName)"
+          Write-Output "Using IddCx lib: $($iddcxLib.Directory.FullName)"
+          Write-Output "Using base UM lib dir: $($baseUmLib.Directory.FullName)"
+
           msbuild $sln `
             /m `
             /t:Build `
@@ -119,7 +175,11 @@ jobs:
             /p:Platform="${{ matrix.platform }}" `
             /p:WindowsSdkDir="$env:WINDOWS_SDK_DIR" `
             /p:WindowsTargetPlatformVersion="$env:WINDOWS_TARGET_PLATFORM_VERSION" `
+            /p:TargetPlatformVersion="$env:WINDOWS_TARGET_PLATFORM_VERSION" `
             /p:UMDF_VERSION_MINOR="$umdfMinor" `
+            /p:VddIddCxIncludeDir="$($iddcxInclude.Directory.FullName)" `
+            /p:VddIddCxLibDir="$($iddcxLib.Directory.FullName)" `
+            /p:VddBaseUmLibDir="$($baseUmLib.Directory.FullName)" `
             /p:EnableInfVerif=false `
             /p:RunApiValidator=false `
             /verbosity:minimal

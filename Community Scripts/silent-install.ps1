@@ -48,10 +48,11 @@ foreach ($cert in $certificates) {
 
 # Install VDD
 Write-Host "Installing Virtual Display Driver silently..." -ForegroundColor Cyan;
-Push-Location $tempDir;
-& $NefConExe install .\VirtualDisplayDriver\MttVDD.inf "Root\MttVDD";
-Start-Sleep -Seconds 10;
-Pop-Location;
+$driverInfPath = Join-Path $tempDir "VirtualDisplayDriver\MttVDD.inf";
+$installProcess = Start-Process -FilePath $NefConExe -ArgumentList @("install", $driverInfPath, "Root\MttVDD") -Wait -PassThru;
+if ($installProcess.ExitCode -ne 0) {
+    throw "NefCon failed with exit code $($installProcess.ExitCode)."
+}
 
 Write-Host "Driver installation completed." -ForegroundColor Green;
 Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue;

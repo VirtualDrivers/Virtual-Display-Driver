@@ -17,6 +17,14 @@
         <friendlyname>default</friendlyname>
     </gpu>
 
+    <shaders>
+        <shader_renderer>false</shader_renderer>
+        <shader_hot_reload>true</shader_hot_reload>
+        <shader_directory>Shaders</shader_directory>
+        <shader_file>wave_shader.hlsl</shader_file>
+        <shader_param0>1.0</shader_param0>
+    </shaders>
+
     <!-- === RESOLUTION CONFIGURATION === -->
     <global>
         <!-- Global refresh rates - applied to all resolutions -->
