@@ -102,6 +102,27 @@ bool preventManufacturerSpoof = false;
 bool edidCeaOverride = false;
 bool sendLogsThroughPipe = true;
 
+constexpr DISPLAYCONFIG_VIDEO_SIGNAL_INFO dispinfo(UINT32 h, UINT32 v, UINT32 rn, UINT32 rd);
+
+namespace
+{
+	void RebuildKnownMonitorModesCache()
+	{
+		s_KnownMonitorModes2.clear();
+		s_KnownMonitorModes2.reserve(monitorModes.size());
+
+		for (const auto& mode : monitorModes)
+		{
+			s_KnownMonitorModes2.push_back(
+				dispinfo(
+					std::get<0>(mode),
+					std::get<1>(mode),
+					std::get<2>(mode),
+					std::get<3>(mode)));
+		}
+	}
+}
+
 //Mouse settings
 bool alphaCursorSupport = true;
 int CursorMaxX = 128;
@@ -1325,6 +1346,7 @@ bool ApplyEdidProfile(const EdidProfileData& profile) {
 		// Validate the final mode list
 		if (ValidateModeList(finalModes)) {
 			monitorModes = finalModes;
+			RebuildKnownMonitorModesCache();
 			
 			stringstream ss;
 			ss << "Enhanced mode management completed:\n"
@@ -1461,6 +1483,14 @@ void  SendToPipe(const std::string& logMessage) {
 }
 
 void vddlog(const char* type, const char* message) {
+	if (!logsEnabled) {
+		return;
+	}
+
+	if (type != nullptr && type[0] == 'd' && !debugLogs) {
+		return;
+	}
+
 	FILE* logFile;
 	wstring logsDir = confpath + L"\\Logs";
 
@@ -1473,30 +1503,8 @@ void vddlog(const char* type, const char* message) {
 
 	wstring logPath = logsDir + L"\\log_" + date_str + L".txt";
 
-	if (logsEnabled) {
-		if (!CreateDirectoryW(logsDir.c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
-			//Just any errors here
-		}
-	}
-	else {
-		WIN32_FIND_DATAW findFileData;
-		HANDLE hFind = FindFirstFileW((logsDir + L"\\*").c_str(), &findFileData);
-
-		if (hFind != INVALID_HANDLE_VALUE) {
-			do {
-				const wstring fileOrDir = findFileData.cFileName;
-				if (fileOrDir != L"." && fileOrDir != L"..") {
-					wstring filePath = logsDir + L"\\" + fileOrDir;
-					if (!(findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-						DeleteFileW(filePath.c_str());
-					}
-				}
-			} while (FindNextFileW(hFind, &findFileData) != 0);
-			FindClose(hFind);
-		}
-
-		RemoveDirectoryW(logsDir.c_str());
-		return;  
+	if (!CreateDirectoryW(logsDir.c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+		// Best effort only.
 	}
 
 	string narrow_logPath = WStringToString(logPath);
@@ -1506,8 +1514,9 @@ void vddlog(const char* type, const char* message) {
 		stringstream ss;
 		ss << put_time(&tm_buf, "%Y-%m-%d %X");
 
+		const char logTypeCode = (type != nullptr) ? type[0] : '\0';
 		string logType;
-		switch (type[0]) {
+		switch (logTypeCode) {
 		case 'e':
 			logType = "ERROR";
 			break; 
@@ -1534,21 +1543,13 @@ void vddlog(const char* type, const char* message) {
 			break;
 		}
 
-		bool shouldLog = true;
-		if (logType == "DEBUG" && !debugLogs) {
-			shouldLog = false;
-		}
-		if (shouldLog) {
-			fprintf(logFile, "[%s] [%s] %s\n", ss.str().c_str(), logType.c_str(), message);
-		}
+		fprintf(logFile, "[%s] [%s] %s\n", ss.str().c_str(), logType.c_str(), message);
 
 		fclose(logFile);
 
 		if (sendLogsThroughPipe && g_pipeHandle != INVALID_HANDLE_VALUE) {
 			string logMessage = ss.str() + " [" + logType + "] " + message + "\n";
-			DWORD bytesWritten;
-			DWORD logMessageSize = static_cast<DWORD>(logMessage.size());
-			WriteFile(g_pipeHandle, logMessage.c_str(), logMessageSize, &bytesWritten, NULL);
+			SendToPipe(logMessage);
 		}
 	}
 }
@@ -2685,6 +2686,7 @@ void loadSettings() {
 		numVirtualDisplays = monitorcount;
 		gpuname = gpuFriendlyName;
 		monitorModes = res;
+		RebuildKnownMonitorModesCache();
 		
 		// === APPLY EDID INTEGRATION ===
 		if (edidIntegrationEnabled && autoConfigureFromEdid) {
@@ -2726,6 +2728,7 @@ void loadSettings() {
 
         vddlog("i", "Using option.txt");
         monitorModes = res;
+        RebuildKnownMonitorModesCache();
         for (const auto& mode : res) {
             int width, height, vsync_num, vsync_den;
             tie(width, height, vsync_num, vsync_den) = mode;
@@ -2800,6 +2803,7 @@ void loadSettings() {
 	}
 
 	monitorModes = res;
+	RebuildKnownMonitorModesCache();
 	return;
 
 }
@@ -3328,33 +3332,46 @@ void SwapChainProcessor::RunCore()
 		logStream.str("");
 		if (hr == E_PENDING)
 		{
-			// We must wait for a new buffer
-			HANDLE WaitHandles[] =
+			HANDLE waitHandles[2] = {};
+			DWORD waitHandleCount = 0;
+
+			if (m_hAvailableBufferEvent != nullptr && m_hAvailableBufferEvent != INVALID_HANDLE_VALUE)
 			{
-				m_hAvailableBufferEvent,
-				m_hTerminateEvent.Get()
-			};
-			DWORD WaitResult = WaitForMultipleObjects(ARRAYSIZE(WaitHandles), WaitHandles, FALSE, 100);
+				waitHandles[waitHandleCount++] = m_hAvailableBufferEvent;
+			}
+
+			if (m_hTerminateEvent.Get())
+			{
+				waitHandles[waitHandleCount++] = m_hTerminateEvent.Get();
+			}
+
+			if (waitHandleCount == 0)
+			{
+				vddlog("e", "No valid wait handles available while waiting for the next frame.");
+				break;
+			}
+
+			DWORD WaitResult = WaitForMultipleObjects(waitHandleCount, waitHandles, FALSE, INFINITE);
 
 			logStream << "Buffer acquisition pending. WaitResult: " << WaitResult;
 
-			if (WaitResult == WAIT_OBJECT_0 || WaitResult == WAIT_TIMEOUT)
+			if (WaitResult == WAIT_OBJECT_0)
 			{
-				// We have a new buffer, so try the AcquireBuffer again
-				//vddlog("d", "New buffer trying aquire new buffer");
 				continue;
 			}
-			else if (WaitResult == WAIT_OBJECT_0 + 1)
+			else if (waitHandleCount > 1 && WaitResult == WAIT_OBJECT_0 + 1)
 			{
-				// We need to terminate
 				logStream << "Terminate event signaled. Exiting loop.";
-				//vddlog("d", logStream.str().c_str());
+				break;
+			}
+			else if (waitHandleCount == 1 && waitHandles[0] == m_hTerminateEvent.Get() && WaitResult == WAIT_OBJECT_0)
+			{
+				logStream << "Terminate event signaled. Exiting loop.";
 				break;
 			}
 			else
 			{
-				// The wait was cancelled or something unexpected happened
-				hr = HRESULT_FROM_WIN32(WaitResult);
+				hr = HRESULT_FROM_WIN32(WaitResult == WAIT_FAILED ? GetLastError() : WaitResult);
 				logStream << "Unexpected wait result. HRESULT: " << hr;
 				vddlog("e", logStream.str().c_str());
 				break;
@@ -3649,14 +3666,18 @@ IndirectDeviceContext::IndirectDeviceContext(_In_ WDFDEVICE WdfDevice) :
 IndirectDeviceContext::~IndirectDeviceContext()
 {
 	stringstream logStream;
+	std::map<IDDCX_MONITOR, std::unique_ptr<SwapChainProcessor>> processingThreads;
 
-	logStream << "Destroying IndirectDeviceContext. Resetting processing thread.";
+	logStream << "Destroying IndirectDeviceContext. Releasing per-monitor processing threads.";
 	vddlog("d", logStream.str().c_str());
 
-	m_ProcessingThread.reset();
+	{
+		std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+		processingThreads.swap(m_ProcessingThreads);
+	}
 
 	logStream.str("");
-	logStream << "Processing thread has been reset.";
+	logStream << "Released " << processingThreads.size() << " monitor processing thread(s).";
 	vddlog("d", logStream.str().c_str());
 }
 
@@ -3852,15 +3873,8 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	}
 }
 
-void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR& Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
+void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
 {
-	// Properly wait for existing thread to complete before creating new one
-	if (m_ProcessingThread) {
-		vddlog("d", "Waiting for existing processing thread to complete before reassignment.");
-		m_ProcessingThread.reset(); // This will call destructor which waits for thread completion
-		vddlog("d", "Existing processing thread completed.");
-	}
-
 	// Only cleanup expired devices periodically, not on every assignment
 	static int assignmentCount = 0;
 	if (++assignmentCount % 10 == 0) {
@@ -3876,8 +3890,22 @@ void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR& Monitor, IDDCX_SWAPCH
 	}
 	else
 	{
-		vddlog("d", "Creating a new swap-chain processing thread.");
-		m_ProcessingThread.reset(new SwapChainProcessor(SwapChain, Device, NewFrameEvent));
+		std::unique_ptr<SwapChainProcessor> previousProcessor;
+		auto newProcessor = std::make_unique<SwapChainProcessor>(SwapChain, Device, NewFrameEvent);
+
+		{
+			std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+			auto& processorSlot = m_ProcessingThreads[Monitor];
+			previousProcessor = std::move(processorSlot);
+			processorSlot = std::move(newProcessor);
+		}
+
+		if (previousProcessor) {
+			vddlog("d", "Replaced existing processing thread for this monitor only.");
+		}
+		else {
+			vddlog("d", "Created a new processing thread for this monitor.");
+		}
 
 		if (hardwareCursor){
 			HANDLE mouseEvent = CreateEventA(
@@ -3930,11 +3958,28 @@ void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR& Monitor, IDDCX_SWAPCH
 }
 
 
-void IndirectDeviceContext::UnassignSwapChain()
+void IndirectDeviceContext::UnassignSwapChain(IDDCX_MONITOR Monitor)
 {
-	// Stop processing the last swap-chain
-	vddlog("i", "Unasigning Swapchain. Processing will be stopped.");
-	m_ProcessingThread.reset();
+	std::unique_ptr<SwapChainProcessor> processorToStop;
+
+	{
+		std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+		auto it = m_ProcessingThreads.find(Monitor);
+		if (it != m_ProcessingThreads.end())
+		{
+			processorToStop = std::move(it->second);
+			m_ProcessingThreads.erase(it);
+		}
+	}
+
+	if (processorToStop)
+	{
+		vddlog("i", "Unassigning swapchain for one monitor. Its processing thread will be stopped.");
+	}
+	else
+	{
+		vddlog("w", "UnassignSwapChain called for a monitor without an active processing thread.");
+	}
 }
 
 #pragma endregion
@@ -3993,9 +4038,7 @@ NTSTATUS VirtualDisplayDriverParseMonitorDescription(const IDARG_IN_PARSEMONITOR
 	logStream << "Parsing monitor description. Input buffer count: " << pInArgs->MonitorModeBufferInputCount;
 	vddlog("d", logStream.str().c_str());
 
-	for (int i = 0; i < monitorModes.size(); i++) {
-		s_KnownMonitorModes2.push_back(dispinfo(std::get<0>(monitorModes[i]), std::get<1>(monitorModes[i]), std::get<2>(monitorModes[i]), std::get<3>(monitorModes[i])));
-	}
+	RebuildKnownMonitorModesCache();
 	pOutArgs->MonitorModeBufferOutputCount = (UINT)monitorModes.size();
 
 	logStream.str("");
@@ -4194,7 +4237,7 @@ NTSTATUS VirtualDisplayDriverMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObjec
 	logStream << "Unassigning swap chain for monitor object: " << MonitorObject;
 	vddlog("d", logStream.str().c_str());
 	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(MonitorObject);
-	pContext->pContext->UnassignSwapChain();
+	pContext->pContext->UnassignSwapChain(MonitorObject);
 	vddlog("d", "Swap chain unassigned successfully.");
 	return STATUS_SUCCESS;
 }
@@ -4360,9 +4403,7 @@ NTSTATUS VirtualDisplayDriverEvtIddCxParseMonitorDescription2(
 	}
 	vddlog("d", logStream.str().c_str());
 
-	for (int i = 0; i < monitorModes.size(); i++) {
-		s_KnownMonitorModes2.push_back(dispinfo(std::get<0>(monitorModes[i]), std::get<1>(monitorModes[i]), std::get<2>(monitorModes[i]), std::get<3>(monitorModes[i])));
-	}
+	RebuildKnownMonitorModesCache();
 	pOutArgs->MonitorModeBufferOutputCount = (UINT)monitorModes.size();
 
 	if (pInArgs->MonitorModeBufferInputCount < monitorModes.size())

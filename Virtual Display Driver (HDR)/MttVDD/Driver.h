@@ -115,8 +115,8 @@ namespace Microsoft
 
             void CreateMonitor(unsigned int index);
 
-            void AssignSwapChain(IDDCX_MONITOR& Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent);
-            void UnassignSwapChain();
+            void AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent);
+            void UnassignSwapChain(IDDCX_MONITOR Monitor);
 
         protected:
 
@@ -125,7 +125,8 @@ namespace Microsoft
             IDDCX_MONITOR m_Monitor;
             IDDCX_MONITOR m_Monitor2;
 
-            std::unique_ptr<SwapChainProcessor> m_ProcessingThread;
+            std::map<IDDCX_MONITOR, std::unique_ptr<SwapChainProcessor>> m_ProcessingThreads;
+            std::mutex m_ProcessingThreadsMutex;
 
         public:
             static const DISPLAYCONFIG_VIDEO_SIGNAL_INFO s_KnownMonitorModes[];
