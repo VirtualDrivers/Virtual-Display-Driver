@@ -12,6 +12,21 @@ This project creates a _virtual monitor_ in Windows that functions just like a p
 
 Unlike traditional monitors, this virtual display supports custom resolutions and refresh rates beyond hardware limitations—offering greater flexibility for advanced setups. You can also use custom EDIDs to simulate or emulate existing hardware displays.
 
+# Check out our other Software!
+
+| 💻 Software | 📝 What It Does |
+| ----------- | --------------- |
+| [Linux Virtual Display Driver](https://github.com/VirtualDrivers/Linux-Virtual-Display-Driver) | Add virtual monitors to Linux for streaming, OBS, Sunshine, and desktop sharing workflows. |
+| [Virtual Audio Driver](https://github.com/VirtualDrivers/Virtual-Audio-Driver) | Add virtual speaker and microphone devices to Windows 10/11. |
+| [Virtual Driver Control](https://github.com/VirtualDrivers/Virtual-Driver-Control) | Control and configure VirtualDrivers tools from a unified app/interface. |
+| [VirtualBT](https://github.com/VirtualDrivers/VirtualBT) | A Windows Bluetooth server for simulating input devices like keyboards, mice, and gamepads. Still very early and not fully functional. |
+| **[BurnBin](https://burnb.in)** | A portable Windows file-sharing tool that turns your own PC into a temporary file drop. Share files with short-lived public links, optional return uploads, endpoint health checks, managed BurnBin links, Cloudflared fallback links, and Direct IP sharing when available. |
+| **[FireFetch](https://firefetch.app)** | A private media-saving app for building an offline library from videos, songs, playlists, torrents, and direct files. It uses tools like yt-dlp, FFmpeg, aria2c, MusicBrainz, YouTube Music metadata, and local indexing to save, queue, organize, and browse media without cloud lock-in or AI-generated recommendations. |
+| **[InfinitePIP](https://infinitepip.app)** | An always-on-top desktop picture-in-picture tool that turns live screens, app windows, and custom regions into borderless floating windows. Create multiple PiPs, pan, zoom, adjust opacity, keep captures above other windows, and even run virtual monitors from Virtual Display Driver inside floating PiP views. |
+| **[BurnFlix](https://burnflix.app)** | A local-first media server that turns movies, shows, personal videos, games, and apps into one polished, living room-ready library. It loads from an offline cache, scans in the background, enriches metadata with providers like TMDB, OMDb, TheTVDB, Steam, Libretro, and IGDB, and keeps artwork, recommendations, and library health local. |
+
+Explore more games, tools, apps, and experiments from PyroSoft: **[Visit PyroSoft.Pro](https://pyrosoft.pro)**
+
 ## 🧾 Changelog (recent)
 
 - **PCI-bus based GPU selection (LUID)**: Improved multi-GPU render adapter selection by resolving an adapter **LUID from a PCI bus number** (more deterministic than name-only matching).
