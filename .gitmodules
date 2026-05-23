@@ -1,0 +1,3 @@
+[submodule "ThirdParty/Windows-Driver-Frameworks"]
+	path = ThirdParty/Windows-Driver-Frameworks
+	url = https://github.com/microsoft/Windows-Driver-Frameworks.git
