@@ -1,0 +1,26 @@
+---
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    rebase-strategy: disabled
+    schedule:
+      interval: "cron"
+      cronjob: "0 2 * * *"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "actions/*"
+          - "github/*"
+
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    rebase-strategy: disabled
+    schedule:
+      interval: "cron"
+      cronjob: "30 2 * * *"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
