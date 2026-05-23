@@ -1,8 +1,8 @@
+---
 name: Build Virtual Display Driver
 
 on:
   pull_request:
-    branches: [ main, master ]
   push:
     branches: [ main, master ]
     paths-ignore:
@@ -10,6 +10,10 @@ on:
       - 'docs/**'
       - 'LICENSE*'
   workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
 
 env:
   BUILD_CONFIGURATION: Release
@@ -141,4 +145,3 @@ jobs:
           name: VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}
           path: artifacts/VDD/${{ matrix.platform }}/
           if-no-files-found: error
-
