@@ -241,5 +241,8 @@ ModelManifest.xml
 # FAKE - F# Make
 .fake/
 
+# JetBrains Rider
+.idea/
+
 **/.claude/settings.local.json
 CLAUDE.md

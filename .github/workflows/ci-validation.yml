@@ -1,8 +1,8 @@
+---
 name: Build Virtual Display Driver
 
 on:
   pull_request:
-    branches: [ main, master ]
   push:
     branches: [ main, master ]
     paths-ignore:
@@ -10,6 +10,10 @@ on:
       - 'docs/**'
       - 'LICENSE*'
   workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
 
 env:
   BUILD_CONFIGURATION: Release
@@ -20,7 +24,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # The WDK driver build is validated against VS 2022; windows-latest is moving to VS 2026.
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
@@ -28,10 +33,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          submodules: true
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57  # v3.0.0
 
       - name: Install Windows Driver Kit (IddCx headers)
         shell: pwsh
@@ -136,9 +143,8 @@ jobs:
           Copy-Item "$outDir\*" -Destination $dest -Recurse -Force
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}
           path: artifacts/VDD/${{ matrix.platform }}/
           if-no-files-found: error
-

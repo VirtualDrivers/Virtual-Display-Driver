@@ -35,6 +35,20 @@ Explore more games, tools, apps, and experiments from PyroSoft: **[Visit PyroSof
 - **EDID integration**: Added EDID integration support for custom/virtual monitor profiles.
 - **Performance optimization**: Driver performance improvements (various internal optimizations).
 
+## Building from source
+
+This repository uses a Git submodule for Microsoft Windows Driver Frameworks headers. Clone with submodules enabled:
+
+```bash
+git clone --recurse-submodules https://github.com/VirtualDrivers/Virtual-Display-Driver.git
+```
+
+For an existing checkout, initialize the submodule before building:
+
+```bash
+git submodule update --init --recursive
+```
+
 ## ⬇️ Download Latest Version
 
 - [Driver Installer (Windows 10/11)](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) - Check the [Releases](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) page for the latest version and release notes.
