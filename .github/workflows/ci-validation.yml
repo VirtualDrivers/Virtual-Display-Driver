@@ -24,7 +24,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # The WDK driver build is validated against VS 2022; windows-latest is moving to VS 2026.
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
