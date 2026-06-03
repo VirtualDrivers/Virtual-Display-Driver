@@ -24,6 +24,11 @@ if (-not (Get-PSRepository -Name $repo.Name -ErrorAction SilentlyContinue)) {
 Set-PSRepository -Name $repo.Name -InstallationPolicy Trusted `
     -InformationAction Ignore -WarningAction SilentlyContinue
 
+#import DisplayConfig
+Import-Module DisplayConfig
+#import MonitorConfig
+Import-Module MonitorConfig
+
 # Loop through the modules and ensure they are imported & installed
 foreach ($m in $modules) {
 

@@ -1,4 +1,4 @@
-/*++
+﻿/*++
 
 Copyright (c) Microsoft Corporation
 
@@ -39,10 +39,6 @@ Environment:
 #include <cwchar>
 #include <map>
 #include <set>
-
-
-
-
 
 #define PIPE_NAME L"\\\\.\\pipe\\MTTVirtualDisplayPipe"
 
@@ -3482,14 +3478,14 @@ vector<BYTE> hardcodedEdid =
 };
 
 
-void modifyEdid(vector<BYTE>& edid) {
+void modifyEdid(vector<BYTE>& edid,UINT displayIndex=0) {
 	if (edid.size() < 12) {
 		return;
 	}
 
 	edid[8] = 0x36;
 	edid[9] = 0x94;
-	edid[10] = 0x37;
+	edid[10] = 0x37+displayIndex;
 	edid[11] = 0x13;
 }
 
@@ -3816,12 +3812,12 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	// Changed from using const_cast to data() to safely access the EDID data.
 	// This improves type safety and code readability, as it eliminates the need for casting 
 	// and ensures we are directly working with the underlying container of known monitor EDID data.
-	MonitorInfo.MonitorDescription.pData = IndirectDeviceContext::s_KnownMonitorEdid.data();
 
-
-
-
-
+    memcpy(MonitorInfo.MonitorDescription.pData, IndirectDeviceContext::s_KnownMonitorEdid.data(),
+           sizeof(IndirectDeviceContext::s_KnownMonitorEdid.data()[0]) * MonitorInfo.MonitorDescription.DataSize );
+    MonitorInfo.MonitorDescription.pData[10] = 0x37 + index;
+    LOG_INFO("使用默认的edid 的 product_id: %d",MonitorInfo.MonitorDescription.pData[10]);
+    MonitorInfo.MonitorDescription.pData[127]= calculateChecksum(reinterpret_cast<char*>(MonitorInfo.MonitorDescription.pData));
 
 	// ==============================
 	// TODO: The monitor's container ID should be distinct from "this" device's container ID if the monitor is not
@@ -4352,8 +4348,8 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetDefaultHdrMetadata(
 			  << "Green Primary: (" << metadata.display_primaries_x[1] << ", " << metadata.display_primaries_y[1] << ")\n" 
 			  << "Blue Primary: (" << metadata.display_primaries_x[2] << ", " << metadata.display_primaries_y[2] << ")\n"
 			  << "White Point: (" << metadata.white_point_x << ", " << metadata.white_point_y << ")\n"
-			  << "Max Mastering Luminance: " << metadata.max_display_mastering_luminance << " (0.0001 cd/m² units)\n"
-			  << "Min Mastering Luminance: " << metadata.min_display_mastering_luminance << " (0.0001 cd/m² units)\n"
+			  << "Max Mastering Luminance: " << metadata.max_display_mastering_luminance << " (0.0001 cd/mm units)\n"
+			  << "Min Mastering Luminance: " << metadata.min_display_mastering_luminance << " (0.0001 cd/mm units)\n"
 			  << "Max Content Light Level: " << metadata.max_content_light_level << " nits\n"
 			  << "Max Frame Average Light Level: " << metadata.max_frame_avg_light_level << " nits";
 	vddlog("i", logStream.str().c_str());

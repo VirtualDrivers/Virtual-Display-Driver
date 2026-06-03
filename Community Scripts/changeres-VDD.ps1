@@ -4,7 +4,10 @@ param(
     [int]$xres,
     [Parameter(Mandatory, Position=1)]
     [Alias("Y","VerticalResolution")]
-    [int]$yres
+    [int]$yres,
+    [Parameter(Mandatory, Position=2)]
+    [Alias("id","displayIndex")]
+    [int]$displayId
 )
 
 # Self-elevate the script if required
@@ -21,7 +24,7 @@ if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 . "$PSScriptRoot\set-dependencies.ps1"
 
 # Getting the correct display
-$disp = Get-DisplayInfo | Where-Object { $_.DisplayName -eq "VDD by MTT" }
+#$disp = Get-DisplayInfo | Where-Object { $_.DisplayName -eq "VDD by MTT" }
 
 # Setting the resolution on the display
-Set-DisplayResolution -DisplayId $disp.DisplayId -Width $xres -Height $yres
+Set-DisplayResolution -DisplayId $displayId -Width $xres -Height $yres

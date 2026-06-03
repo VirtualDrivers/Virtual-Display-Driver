@@ -1,12 +1,11 @@
 <#
 .SYNOPSIS
 A comprehensive script to manage the Virtual Display Driver.
-It can install, uninstall, enable, disable, toggle, and check the status of the driver.
+It can enable, disable, toggle, and check the status of the driver.
 
 .DESCRIPTION
 This script handles the full lifecycle of the Virtual Display Driver.
 - If no action is specified, it interactively prompts the user to select one.
-- For install/uninstall, it automatically resolves the correct version of Microsoft's DevCon utility using a nearest-build matching algorithm for maximum compatibility.
 - For enable/disable/toggle/status, it uses fast, built-in PowerShell commands.
 - It requires Administrator privileges and will self-elevate if needed by re-launching in a new window.
 - All temporary files are automatically cleaned up unless in Verbose mode for diagnostics.
@@ -14,8 +13,6 @@ This script handles the full lifecycle of the Virtual Display Driver.
 .PARAMETER Action
 Specifies the operation to perform. If omitted, the script will prompt for a selection.
 
-.PARAMETER DriverVersion
-Used only with the 'install' action to specify a version of the Virtual Display Driver, otherwise defaults to 'latest'.
 
 .PARAMETER Json
 If present, all output will be in JSON format for easy parsing by other programs.
@@ -32,12 +29,6 @@ If present, prints detailed diagnostic information and prevents the temporary fo
 # Run without an action to get an interactive menu. The window will pause when finished.
 .\virtual-driver-manager.ps1
 
-# Install the driver and pause for review afterwards (default behavior).
-.\virtual-driver-manager.ps1 -Action install
-
-# Uninstall the driver and close the window automatically.
-.\virtual-driver-manager.ps1 -Action uninstall -Silent
-
 .EXAMPLE
 # --- USAGE FROM CMD.EXE OR ANOTHER PROCESS ---
 
@@ -50,7 +41,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\virtual-driver-manager.ps1 -Actio
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet('install', 'uninstall', 'enable', 'disable', 'toggle', 'status')]
+    [ValidateSet('enable', 'disable', 'toggle', 'status')]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
@@ -104,7 +95,7 @@ if (-not $PSBoundParameters.ContainsKey('Action')) {
         exit 1
     }
 
-    $options = 'install', 'uninstall', 'enable', 'disable', 'toggle', 'status'
+    $options = 'enable', 'disable', 'toggle', 'status'
     Write-Host "`nPlease select an action to perform:" -ForegroundColor Yellow
 
     for ($i = 0; $i -lt $options.Length; $i++) {
@@ -162,10 +153,6 @@ if (-Not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 #----------------------------------------------------------------------
 # SECTION 4: SETUP AND GUARANTEED CLEANUP
 #----------------------------------------------------------------------
-# Create a unique temporary directory to avoid conflicts if the script is run multiple times concurrently.
-$tempDir = Join-Path $env:TEMP "VDD-Manager-$(Get-Random)"
-New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-Write-Verbose "Created temporary directory at $tempDir"
 
 # Use a try/catch/finally block to ensure that no matter what happens (success or error),
 # the 'finally' block will ALWAYS run to clean up temporary files.
@@ -196,135 +183,7 @@ try {
     #----------------------------------------------------------------------
     # SECTION 6: MAIN ACTION LOGIC
     #----------------------------------------------------------------------
-    if ($Action -in @('install', 'uninstall')) {
-
-        #--- 6a. Automatically Resolve DevCon Hash ---
-        Write-Log -Message "Action '$Action' requires the DevCon utility. Determining correct version..."
-        $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
-        $osBuild = [int]$osInfo.BuildNumber
-        
-        $osMajorVersion = 'Server'
-        if ($osInfo.Caption -match 'Windows 11') { $osMajorVersion = '11' }
-        elseif ($osInfo.Caption -match 'Windows 10') { $osMajorVersion = '10' }
-        
-        Write-Log -Message "Detected: Windows $osMajorVersion (Build $osBuild)"
-        Write-Verbose "OS detection complete. Starting DevCon source matching."
-
-        # This map is the core of the matching logic. It translates the human-readable version names
-        # from the devcon_sources.json file into their corresponding OS build numbers for comparison.
-        $versionNameToBuildMap = @{
-            "Windows 11 version 24H2" = 26100; "Windows 11 version 23H2" = 22631; "Windows 11 version 22H2" = 22621;
-            "Windows 11 version 21H2" = 22000; "Windows Server 2022" = 20348; "Windows 10 version 2004" = 19041;
-            "Windows 10 version 1903" = 18362; "Windows 10 version 1809" = 17763; "Windows Server 2019" = 17763
-        }
-        
-        $sourcesUrl = "https://raw.githubusercontent.com/Drawbackz/DevCon-Installer/refs/heads/master/devcon_sources.json"
-        Write-Verbose "Fetching DevCon sources from $sourcesUrl"
-        $devconSources = Invoke-RestMethod -Uri $sourcesUrl
-
-        # Enrich the downloaded source list with a calculated 'BuildNumber' property to make it sortable.
-        $enrichedSources = $devconSources | ForEach-Object {
-            $source = $_; $matchedBuild = 0
-            foreach ($entry in $versionNameToBuildMap.GetEnumerator()) {
-                if ($source.Name.Contains($entry.Key)) { $matchedBuild = $entry.Value; break }
-            }
-            $source | Add-Member -MemberType NoteProperty -Name "BuildNumber" -Value $matchedBuild; $source
-        } | Where-Object { $_.BuildNumber -gt 0 }
-
-        $osFamilySources = $enrichedSources | Where-Object { $_.Name -like "*Windows $osMajorVersion*" -or ($osMajorVersion -eq 'Server' -and $_.Name -like "*Server*") }
-        
-        # --- NEAREST-BUILD MATCHING LOGIC ---
-        # 1. Try for a perfect match first.
-        $bestMatch = $osFamilySources | Where-Object { $_.BuildNumber -eq $osBuild } | Select-Object -First 1
-
-        if (-not $bestMatch) {
-            Write-Log -Message "No exact DevCon match for build $osBuild. Finding nearest available version..." -Status 'Warning'
-            # 2. If no exact match, find the newest version that is still older than (or equal to) the current OS.
-            #    This is the safest fallback, as it guarantees API compatibility.
-            $bestOlderMatch = $osFamilySources | Where-Object { $_.BuildNumber -le $osBuild } | Sort-Object BuildNumber -Descending | Select-Object -First 1
-            
-            # 3. If no older versions exist, find the oldest version that is newer than the current OS.
-            #    This is a less-safe fallback but better than failing completely.
-            $bestNewerMatch = $osFamilySources | Where-Object { $_.BuildNumber -gt $osBuild } | Sort-Object BuildNumber | Select-Object -First 1
-            
-            if ($bestOlderMatch) { $bestMatch = $bestOlderMatch } elseif ($bestNewerMatch) { $bestMatch = $bestNewerMatch }
-            Write-Verbose "Nearest older match: $($bestOlderMatch.Name) | Nearest newer match: $($bestNewerMatch.Name)"
-        }
-
-        if (-not $bestMatch) { throw "Could not find any compatible DevCon versions for your OS (Build $osBuild)." }
-        
-        $devconHash = ($bestMatch.Sources | Where-Object { $_.Architecture -eq 'X64' }).Sha256
-        Write-Log -Message "Using DevCon Source: $($bestMatch.Name) (Build $($bestMatch.BuildNumber))" -Status 'Success'
-        Write-Verbose "Selected DevCon Hash (X64): $devconHash"
-        if (-not $devconHash) { throw "Could not find a 64-bit DevCon hash in the selected source: $($bestMatch.Name)" }
-
-        #--- 6b. Acquire DevCon Utility ---
-        Write-Log -Message "Acquiring secure DevCon utility..."
-        $devconInstallerUrl = "https://github.com/Drawbackz/DevCon-Installer/releases/download/1.4-rc/Devcon.Installer.exe"
-        $devconInstallerPath = Join-Path $tempDir "Devcon.Installer.exe"
-        Write-Verbose "Downloading DevCon Installer from $devconInstallerUrl"
-        Invoke-WebRequest -Uri $devconInstallerUrl -OutFile $devconInstallerPath
-        Write-Verbose "DevCon Installer downloaded successfully."
-        
-        # Use the hash to ensure the DevCon-Installer utility downloads the correct, secure version of DevCon.
-        $devconArgs = "install -hash $devconHash -update -dir `"$tempDir`""
-        Write-Verbose "Running DevCon Installer with arguments: $devconArgs"
-        Start-Process -FilePath $devconInstallerPath -ArgumentList $devconArgs -Wait -NoNewWindow
-        
-        $devconExe = Join-Path $tempDir "devcon.exe"
-        if (-not (Test-Path $devconExe)) { throw "Failed to acquire devcon.exe." }
-        Write-Verbose "devcon.exe acquired successfully at $devconExe"
-
-        #--- 6c. Execute Install or Uninstall ---
-        if ($Action -eq 'install') {
-            Write-Log -Message "Starting driver installation..."
-            $downloadUrl = $null
-            if ($DriverVersion -eq "latest") {
-                $apiUrl = "https://api.github.com/repos/VirtualDrivers/Virtual-Display-Driver/releases/latest"
-                # Technical Choice: Many APIs, including GitHub's, require a User-Agent header.
-                # Omitting this can lead to connection errors (like 403 Forbidden or 404 Not Found).
-                $headers = @{ "User-Agent" = "PowerShell-VDD-Manager-Script" }
-                
-                Write-Verbose "Querying GitHub API for latest driver release: $apiUrl"
-                $releaseInfo = Invoke-RestMethod -Uri $apiUrl -Headers $headers
-                Write-Verbose "API call successful. Latest release found: $($releaseInfo.tag_name)"
-
-                $asset = $releaseInfo.assets | Where-Object { $_.name -match "x64\.zip$" } | Select-Object -First 1
-                if (-not $asset) { throw "Could not find a 64-bit driver asset (x64.zip) in the latest GitHub release." }
-                
-                $downloadUrl = $asset.browser_download_url
-                Write-Verbose "Found driver asset: $($asset.name)"
-            }
-            else {
-                $downloadUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/$DriverVersion/Signed-Driver-v$DriverVersion-x64.zip"
-                Write-Verbose "Using specified driver version: $DriverVersion"
-            }
-
-            if (-not $downloadUrl) { throw "Could not determine a valid driver download URL for version '$DriverVersion'." }
-            
-            Write-Verbose "Downloading driver from URL: $downloadUrl"
-            $driverZipPath = Join-Path $tempDir "driver.zip"
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $driverZipPath
-            Write-Verbose "Driver ZIP file downloaded to $driverZipPath"
-            
-            Expand-Archive -Path $driverZipPath -DestinationPath $tempDir -Force
-            Write-Verbose "Driver archive expanded."
-
-            # Use DevCon to install the driver by pointing to its INF file and specifying its unique Hardware ID.
-            # "Root\MttVDD" identifies this as a root-enumerated virtual device.
-            Write-Verbose "Running DevCon to install the driver..."
-            & $devconExe install (Join-Path $tempDir "MttVDD.inf") "Root\MttVDD"
-        }
-        else { # Action must be 'uninstall'
-            Write-Log -Message "Starting driver uninstallation..."
-            if (Get-VirtualDisplayDevice) {
-                Write-Verbose "Driver found. Preparing to remove."
-                & $devconExe remove "Root\MttVDD"
-            }
-            else { Write-Log -Message "Driver is not currently installed. Nothing to do." }
-        }
-    }
-    elseif ($Action -in @('enable', 'disable', 'toggle')) {
+    if ($Action -in @('enable', 'disable', 'toggle')) {
         $device = Get-VirtualDisplayDevice
         if (-not $device) { Write-Log -Message "Device not found. Cannot perform '$Action'. Please install the driver first." -Status 'Warning' }
         elseif ($Action -eq 'enable') { Write-Log -Message "Enabling device: $($device.FriendlyName)..."; $device | Enable-PnpDevice -Confirm:$false }
@@ -383,16 +242,7 @@ finally {
     # This block ALWAYS runs, ensuring cleanup happens after success or failure.
     # If the user ran with -Verbose, we assume they are debugging.
     # We will NOT delete the temporary folder so they can inspect its contents.
-    if ($PSBoundParameters.ContainsKey('Verbose')) {
-        Write-Verbose "Verbose mode is active. Temporary directory will not be deleted so you can inspect its contents: $tempDir"
-    }
-    else {
-        if (Test-Path $tempDir) {
-            # This Write-Verbose message will not be visible without -Verbose, but is good practice.
-            Write-Verbose "Cleaning up temporary directory: $tempDir"
-            Remove-Item -Path $tempDir -Recurse -Force
-        }
-    }
+    
 }
 
 # Add a final pause unless in Silent or JSON mode so the user can see the output.
