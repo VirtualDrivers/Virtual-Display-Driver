@@ -171,7 +171,7 @@ During driver updates, Windows re-enumerates display devices and may prioritize 
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=VirtualDrivers/Virtual-Display-Driver&type=Date)](https://www.star-history.com/#VirtualDrivers/Virtual-Display-Driver&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=VirtualDrivers/Virtual-Display-Driver&type=Date)](https://star-history.dera.page/#VirtualDrivers/Virtual-Display-Driver&Date)
 
 ## Disclaimer:
 
