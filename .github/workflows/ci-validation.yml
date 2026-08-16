@@ -39,51 +39,17 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57  # v3.0.0
-
-      - name: Install Windows Driver Kit (IddCx headers)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          choco install windowsdriverkit11 -y --no-progress
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Detect Windows SDK (windows.h)
+        
+      - name: Restore
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $kitsRoot = $null
-          try {
-            $kitsRoot = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots" -Name "KitsRoot10" -ErrorAction Stop).KitsRoot10
-          } catch {
-            $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\"
-          }
-
-          if (-not $kitsRoot -or -not (Test-Path $kitsRoot)) {
-            throw "Windows Kits root not found: $kitsRoot"
-          }
-
-          $includeRoot = Join-Path $kitsRoot "Include"
-          if (-not (Test-Path $includeRoot)) {
-            throw "Windows Kits Include directory not found: $includeRoot"
-          }
-
-          $best =
-            Get-ChildItem -Path $includeRoot -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
-            Where-Object { Test-Path (Join-Path $_.FullName "um\Windows.h") } |
-            Sort-Object -Property Name -Descending |
-            Select-Object -First 1
-
-          if (-not $best) {
-            throw "Could not find an SDK version directory containing um\\Windows.h under: $includeRoot"
-          }
-
-          $sdkVersion = $best.Name
-          Write-Output "Using WindowsSdkDir: $kitsRoot"
-          Write-Output "Using WindowsTargetPlatformVersion: $sdkVersion"
-          "WINDOWS_SDK_DIR=$kitsRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "WINDOWS_TARGET_PLATFORM_VERSION=$sdkVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          msbuild "${{ env.VDD_SOLUTION }}" `
+            /t:Restore `
+            /p:Platform="${{ matrix.platform }}" `
+            /p:Configuration="${{ env.BUILD_CONFIGURATION }}" `
+            /verbosity:minimal
 
       - name: Build VDD (${{ matrix.platform }})
         shell: pwsh
@@ -93,40 +59,12 @@ jobs:
           $sln = "${{ env.VDD_SOLUTION }}"
           if (-not (Test-Path $sln)) { throw "VDD solution file not found at: $sln" }
 
-          # Pick an available UMDF WDF header version on the runner.
-          # Kits can be laid out either versioned:
-          #   Include\<sdk>\wdf\umdf\2.xx
-          # or unversioned:
-          #   Include\wdf\umdf\2.xx
-          $umdfRoots = @(
-            (Join-Path $env:WINDOWS_SDK_DIR ("Include\" + $env:WINDOWS_TARGET_PLATFORM_VERSION + "\wdf\umdf")),
-            (Join-Path $env:WINDOWS_SDK_DIR "Include\wdf\umdf")
-          ) | Where-Object { Test-Path $_ }
-
-          if (-not $umdfRoots -or $umdfRoots.Count -eq 0) {
-            throw "UMDF WDF include root not found under $env:WINDOWS_SDK_DIR (tried versioned + unversioned layouts)"
-          }
-
-          $umdfBest =
-            $umdfRoots |
-            ForEach-Object { Get-ChildItem -Path $_ -Directory -ErrorAction SilentlyContinue } |
-            Where-Object { $_.Name -match '^\d+\.\d+$' } |
-            Sort-Object -Property Name -Descending |
-            Select-Object -First 1
-
-          if (-not $umdfBest) { throw "No UMDF version directories found under: $($umdfRoots -join ', ')" }
-
-          $umdfMinor = ($umdfBest.Name -split '\.')[1]
-          Write-Output "Using UMDF version: $($umdfBest.Name) (minor=$umdfMinor) from $($umdfBest.FullName)"
-
           msbuild $sln `
             /m `
+            /restore `
             /t:Build `
             /p:Configuration="${{ env.BUILD_CONFIGURATION }}" `
             /p:Platform="${{ matrix.platform }}" `
-            /p:WindowsSdkDir="$env:WINDOWS_SDK_DIR" `
-            /p:WindowsTargetPlatformVersion="$env:WINDOWS_TARGET_PLATFORM_VERSION" `
-            /p:UMDF_VERSION_MINOR="$umdfMinor" `
             /p:EnableInfVerif=false `
             /p:RunApiValidator=false `
             /verbosity:minimal

@@ -44,6 +44,10 @@
   <ItemGroup>
     <Inf Include="MttVDD.inf" />
   </ItemGroup>
+  <ItemGroup>
+  <PackageReference Include="Microsoft.Windows.WDK.x64"
+                    Version="10.0.26100.6584" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{2D54CB75-8B17-4F11-97DC-847B0244CD46}</ProjectGuid>
     <TemplateGuid>{32909489-7be5-497b-aafa-db6669d9b44b}</TemplateGuid>
