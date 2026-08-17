@@ -93,32 +93,6 @@ jobs:
           $sln = "${{ env.VDD_SOLUTION }}"
           if (-not (Test-Path $sln)) { throw "VDD solution file not found at: $sln" }
 
-          # Pick an available UMDF WDF header version on the runner.
-          # Kits can be laid out either versioned:
-          #   Include\<sdk>\wdf\umdf\2.xx
-          # or unversioned:
-          #   Include\wdf\umdf\2.xx
-          $umdfRoots = @(
-            (Join-Path $env:WINDOWS_SDK_DIR ("Include\" + $env:WINDOWS_TARGET_PLATFORM_VERSION + "\wdf\umdf")),
-            (Join-Path $env:WINDOWS_SDK_DIR "Include\wdf\umdf")
-          ) | Where-Object { Test-Path $_ }
-
-          if (-not $umdfRoots -or $umdfRoots.Count -eq 0) {
-            throw "UMDF WDF include root not found under $env:WINDOWS_SDK_DIR (tried versioned + unversioned layouts)"
-          }
-
-          $umdfBest =
-            $umdfRoots |
-            ForEach-Object { Get-ChildItem -Path $_ -Directory -ErrorAction SilentlyContinue } |
-            Where-Object { $_.Name -match '^\d+\.\d+$' } |
-            Sort-Object -Property Name -Descending |
-            Select-Object -First 1
-
-          if (-not $umdfBest) { throw "No UMDF version directories found under: $($umdfRoots -join ', ')" }
-
-          $umdfMinor = ($umdfBest.Name -split '\.')[1]
-          Write-Output "Using UMDF version: $($umdfBest.Name) (minor=$umdfMinor) from $($umdfBest.FullName)"
-
           msbuild $sln `
             /m `
             /t:Build `
@@ -126,7 +100,6 @@ jobs:
             /p:Platform="${{ matrix.platform }}" `
             /p:WindowsSdkDir="$env:WINDOWS_SDK_DIR" `
             /p:WindowsTargetPlatformVersion="$env:WINDOWS_TARGET_PLATFORM_VERSION" `
-            /p:UMDF_VERSION_MINOR="$umdfMinor" `
             /p:EnableInfVerif=false `
             /p:RunApiValidator=false `
             /verbosity:minimal
