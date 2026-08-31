@@ -49,6 +49,8 @@ namespace Microsoft
 {
     namespace IndirectDisp
     {
+        class IndirectDeviceContext;
+
         /// <summary>
         /// Manages the creation and lifetime of a Direct3D render device.
         /// </summary>
@@ -102,6 +104,39 @@ namespace Microsoft
         };
 
         /// <summary>
+        /// Owns state whose lifetime is tied to one IddCx monitor object.
+        /// </summary>
+        class IndirectMonitorContext
+        {
+        public:
+            IndirectMonitorContext(
+                _In_ IndirectDeviceContext* DeviceContext,
+                _In_ IDDCX_MONITOR Monitor,
+                _In_ UINT ConnectorIndex);
+            ~IndirectMonitorContext();
+
+            IndirectDeviceContext* GetDeviceContext() const;
+            IDDCX_MONITOR GetMonitor() const;
+            UINT GetConnectorIndex() const;
+
+            void ApplyCommittedPath(
+                _In_ IDDCX_PATH_FLAGS Flags,
+                _In_ const DISPLAYCONFIG_VIDEO_SIGNAL_INFO& TargetSignal);
+            void ReplaceCursorEvent(_In_opt_ HANDLE CursorEvent);
+            void ClearCursorEvent();
+
+        private:
+            IndirectDeviceContext* m_DeviceContext;
+            IDDCX_MONITOR m_Monitor;
+            UINT m_ConnectorIndex;
+            std::mutex m_StateMutex;
+            HANDLE m_hCursorEvent;
+            bool m_PathActive;
+            bool m_HasCommittedTargetMode;
+            DISPLAYCONFIG_VIDEO_SIGNAL_INFO m_CommittedTargetSignal;
+        };
+
+        /// <summary>
         /// Provides a sample implementation of an indirect display driver.
         /// </summary>
         class IndirectDeviceContext
@@ -115,15 +150,13 @@ namespace Microsoft
 
             void CreateMonitor(unsigned int index);
 
-            void AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent);
-            void UnassignSwapChain(IDDCX_MONITOR Monitor);
+            void AssignSwapChain(IndirectMonitorContext* MonitorContext, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent);
+            void UnassignSwapChain(IndirectMonitorContext* MonitorContext);
 
         protected:
 
             WDFDEVICE m_WdfDevice;
             IDDCX_ADAPTER m_Adapter;
-            IDDCX_MONITOR m_Monitor;
-            IDDCX_MONITOR m_Monitor2;
 
             std::map<IDDCX_MONITOR, std::unique_ptr<SwapChainProcessor>> m_ProcessingThreads;
             std::mutex m_ProcessingThreadsMutex;
