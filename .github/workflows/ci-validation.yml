@@ -142,9 +142,37 @@ jobs:
           New-Item -ItemType Directory -Path $dest -Force | Out-Null
           Copy-Item "$outDir\*" -Destination $dest -Recurse -Force
 
+      - name: Validate ARM64 driver package (CI policy)
+        if: matrix.platform == 'ARM64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./scripts/Test-Arm64DriverPackage.ps1 `
+            -PackagePath "artifacts/VDD/ARM64" `
+            -Policy CI
+
+      - name: Create ARM64 attestation CAB
+        if: matrix.platform == 'ARM64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $result = ./scripts/New-AttestationCab.ps1 `
+            -InputDirectory "artifacts/VDD/ARM64" `
+            -OutputDirectory "artifacts/VDD/ARM64" `
+            -CabFileName "MttVDD-ARM64-Attestation.cab"
+          Write-Output "Created attestation CAB at $($result.CabPath)"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}
           path: artifacts/VDD/${{ matrix.platform }}/
+          if-no-files-found: error
+
+      - name: Upload ARM64 attestation CAB
+        if: matrix.platform == 'ARM64'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: VDD-ARM64-Attestation-CAB
+          path: artifacts/VDD/ARM64/MttVDD-ARM64-Attestation.cab
           if-no-files-found: error
