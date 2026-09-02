@@ -36,11 +36,19 @@ $ErrorActionPreference = 'Stop'
 function Test-SecurityGates {
     $results = @()
 
-    $secureBoot = Confirm-SecureBootUEFI -ErrorAction SilentlyContinue
+    $secureBoot = $false
+    try {
+        $secureBoot = Confirm-SecureBootUEFI -ErrorAction Stop
+    }
+    catch {
+        $reg = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' -Name UEFISecureBootEnabled -ErrorAction SilentlyContinue
+        $secureBoot = ($reg.UEFISecureBootEnabled -eq 1)
+    }
+
     $results += [pscustomobject]@{
         Check  = 'SecureBoot'
         Status = $(if ($secureBoot) { 'PASS' } else { 'FAIL' })
-        Detail = $(if ($secureBoot) { 'Secure Boot is enabled.' } else { 'Secure Boot is disabled or unavailable.' })
+        Detail = $(if ($secureBoot) { 'Secure Boot is enabled.' } else { 'Secure Boot is disabled or could not be verified.' })
     }
 
     $hvciEnabled = $false
