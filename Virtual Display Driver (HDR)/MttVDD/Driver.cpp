@@ -3710,7 +3710,10 @@ void IndirectDeviceContext::InitAdapter()
 	// Declare basic feature support for the adapter (required)
 	AdapterCaps.MaxMonitorsSupported = numVirtualDisplays;
 	AdapterCaps.EndPointDiagnostics.Size = sizeof(AdapterCaps.EndPointDiagnostics);
-	AdapterCaps.EndPointDiagnostics.GammaSupport = IDDCX_FEATURE_IMPLEMENTATION_NONE;
+	// The VDD registers EVT_IDD_CX_MONITOR_SET_GAMMA_RAMP above. Advertise
+	// software gamma support so Windows exposes the standard gamma-ramp APIs
+	// on the VDD DC; the callback path is exercised by the VM validation.
+	AdapterCaps.EndPointDiagnostics.GammaSupport = IDDCX_FEATURE_IMPLEMENTATION_SOFTWARE;
 	AdapterCaps.EndPointDiagnostics.TransmissionType = IDDCX_TRANSMISSION_TYPE_WIRED_OTHER;
 
 	// Declare your device strings for telemetry (required)
