@@ -28,6 +28,10 @@ env:
   BUILD_CONFIGURATION: Release
   VDD_SOLUTION: Virtual Display Driver (HDR)/MttVDD.sln
   CONTROL_PANEL_DIR: VirtualDriverControl
+  # Keep the project's Windows 10-compatible released UMDF baseline. Never
+  # select the highest directory from the runner: WDKs can contain preview WDF
+  # headers (for example 2.35) that retail Windows rejects at load time.
+  UMDF_VERSION: '2.25'
   # Signing is deliberate: release tags sign automatically, and a manual run
   # must explicitly opt in. Pull requests and ordinary branch pushes never
   # receive the SignPath token.
@@ -125,7 +129,7 @@ jobs:
           $sln = "${{ env.VDD_SOLUTION }}"
           if (-not (Test-Path $sln)) { throw "VDD solution file not found at: $sln" }
 
-          # Pick an available UMDF WDF header version on the runner.
+          # Resolve the project's explicitly supported UMDF WDF headers.
           # Kits can be laid out either versioned:
           #   Include\<sdk>\wdf\umdf\2.xx
           # or unversioned:
@@ -139,17 +143,17 @@ jobs:
             throw "UMDF WDF include root not found under $env:WINDOWS_SDK_DIR (tried versioned + unversioned layouts)"
           }
 
-          $umdfBest =
+          $umdfDirectory =
             $umdfRoots |
-            ForEach-Object { Get-ChildItem -Path $_ -Directory -ErrorAction SilentlyContinue } |
-            Where-Object { $_.Name -match '^\d+\.\d+$' } |
-            Sort-Object -Property Name -Descending |
+            ForEach-Object { Get-ChildItem -Path $_ -Directory -Filter $env:UMDF_VERSION -ErrorAction SilentlyContinue } |
             Select-Object -First 1
 
-          if (-not $umdfBest) { throw "No UMDF version directories found under: $($umdfRoots -join ', ')" }
+          if (-not $umdfDirectory) {
+            throw "Released UMDF $env:UMDF_VERSION headers were not found under: $($umdfRoots -join ', ')"
+          }
 
-          $umdfMinor = ($umdfBest.Name -split '\.')[1]
-          Write-Output "Using UMDF version: $($umdfBest.Name) (minor=$umdfMinor) from $($umdfBest.FullName)"
+          $umdfMinor = ($env:UMDF_VERSION -split '\.')[1]
+          Write-Output "Using pinned UMDF version: $env:UMDF_VERSION (minor=$umdfMinor) from $($umdfDirectory.FullName)"
 
           $now = [DateTime]::UtcNow
           $driverVersion = $env:RELEASE_VERSION
@@ -254,6 +258,11 @@ jobs:
             if (-not (Test-Path (Join-Path $dest $file))) {
               throw "Required driver package file not found: $file"
             }
+          }
+
+          $inf = Join-Path $dest "MttVDD.inf"
+          if ((Select-String -Path $inf -Pattern "^UmdfLibraryVersion=$([regex]::Escape($env:UMDF_VERSION))\.0\s*$").Count -ne 1) {
+            throw "Built INF does not target the required released UMDF $env:UMDF_VERSION baseline"
           }
 
       - name: Upload unsigned driver package
