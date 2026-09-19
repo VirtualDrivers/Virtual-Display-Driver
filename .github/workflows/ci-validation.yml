@@ -361,5 +361,5 @@ jobs:
           SIGNING_REQUEST_URL: ${{ steps.submit_signing.outputs.signing-request-web-url }}
         run: |
           "## SignPath signing (${{ matrix.platform }})" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-          "- Signed package: `VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}-signed`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          '- Signed package: `VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}-signed`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           "- Signing request: $env:SIGNING_REQUEST_URL" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
