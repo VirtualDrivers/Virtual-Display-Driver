@@ -288,7 +288,10 @@ jobs:
       - name: Submit VDD package to SignPath
         id: submit_signing
         if: env.SIGNPATH_SIGNING_RUN == 'true'
-        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092  # v3.0.0
+        # v3.0.0 currently rejects otherwise valid GitHub artifacts with
+        # "User has no access to the requested GitHub resource" (upstream #18).
+        # v2.3 is the last Node 24-compatible release before that regression.
+        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627  # v2.3.0
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORG_ID }}
