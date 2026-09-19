@@ -49,6 +49,10 @@ For an existing checkout, initialize the submodule before building:
 git submodule update --init --recursive
 ```
 
+The release workflow also builds the Control Panel in [`VirtualDriverControl`](VirtualDriverControl/README.md).
+Its portable executable is versioned with the same `YY.M.D.GITHUB_RUN_NUMBER` value as the driver, packaged beside
+the matching x64 or ARM64 driver, and submitted with the driver DLL and catalog for code signing.
+
 ## ⬇️ Download Latest Version
 
 - [Driver Installer (Windows 10/11)](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) - Check the [Releases](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) page for the latest version and release notes.

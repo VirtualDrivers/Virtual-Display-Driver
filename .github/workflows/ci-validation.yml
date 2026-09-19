@@ -27,6 +27,7 @@ concurrency:
 env:
   BUILD_CONFIGURATION: Release
   VDD_SOLUTION: Virtual Display Driver (HDR)/MttVDD.sln
+  CONTROL_PANEL_DIR: VirtualDriverControl
   # Signing is deliberate: release tags sign automatically, and a manual run
   # must explicitly opt in. Pull requests and ordinary branch pushes never
   # receive the SignPath token.
@@ -50,6 +51,20 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           submodules: true
+
+      - name: Compute release version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $now = [DateTime]::UtcNow
+          $buildNumber = [int]$env:GITHUB_RUN_NUMBER
+          if ($buildNumber -lt 0 -or $buildNumber -gt 65535) {
+            throw "GITHUB_RUN_NUMBER must fit an INF version component (0-65535): $buildNumber"
+          }
+
+          $releaseVersion = "{0}.{1}.{2}.{3}" -f ($now.Year % 100), $now.Month, $now.Day, $buildNumber
+          Write-Output "Using release version $releaseVersion"
+          "RELEASE_VERSION=$releaseVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57  # v3.0.0
@@ -134,11 +149,7 @@ jobs:
           Write-Output "Using UMDF version: $($umdfBest.Name) (minor=$umdfMinor) from $($umdfBest.FullName)"
 
           $now = [DateTime]::UtcNow
-          $buildNumber = [int]$env:GITHUB_RUN_NUMBER
-          if ($buildNumber -lt 0 -or $buildNumber -gt 65535) {
-            throw "GITHUB_RUN_NUMBER must fit an INF version component (0-65535): $buildNumber"
-          }
-          $driverVersion = "{0}.{1}.{2}.{3}" -f ($now.Year % 100), $now.Month, $now.Day, $buildNumber
+          $driverVersion = $env:RELEASE_VERSION
           $driverDate = $now.ToString("MM/dd/yyyy", [Globalization.CultureInfo]::InvariantCulture)
           Write-Output "Stamping DriverVer=$driverDate,$driverVersion"
 
@@ -156,6 +167,58 @@ jobs:
             /p:RunApiValidator=false `
             /verbosity:minimal
 
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: VirtualDriverControl/package-lock.json
+
+      - name: Build Control Panel (${{ matrix.platform }})
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $controlArch = if ("${{ matrix.platform }}" -eq "ARM64") { "arm64" } else { "x64" }
+
+          Push-Location "${{ env.CONTROL_PANEL_DIR }}"
+          try {
+            npm ci
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            # Fail releases for moderate-or-higher dependency advisories. The
+            # remaining low advisory is isolated to the local Vite dev server
+            # and is not included in the packaged application.
+            npm audit --audit-level=moderate
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            npm version $env:RELEASE_VERSION --no-git-tag-version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            npm run typecheck
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            npm run test:generated
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            $parseErrors = @()
+            Get-ChildItem "out-ps-check\*.ps1" | ForEach-Object {
+              $tokens = $null
+              $errors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+              $parseErrors += $errors
+            }
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | Format-List
+              throw "Generated installer PowerShell failed to parse"
+            }
+            Add-Type -Path (Resolve-Path "out-ps-check\core-audio-interop.cs")
+
+            npm run "build-portable:$controlArch"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
       - name: Collect outputs
         shell: pwsh
         run: |
@@ -167,10 +230,17 @@ jobs:
           New-Item -ItemType Directory -Path $dest -Force | Out-Null
           Copy-Item "$outDir\*" -Destination $dest -Recurse -Force
 
-          # This is the complete installable UMDF package. SignPath receives the
-          # GitHub Actions ZIP containing these exact files, with no installer or
-          # unrelated driver payload mixed in.
-          $requiredFiles = @("MttVDD.dll", "MttVDD.inf", "MttVDD.cat", "vdd_settings.xml")
+          $controlArch = if ("${{ matrix.platform }}" -eq "ARM64") { "arm64" } else { "x64" }
+          $controlSource = "${{ env.CONTROL_PANEL_DIR }}\dist\Virtual Driver Control-$env:RELEASE_VERSION-$controlArch.exe"
+          if (-not (Test-Path $controlSource)) {
+            throw "Control Panel executable not found: $controlSource"
+          }
+          Copy-Item $controlSource -Destination (Join-Path $dest "Virtual Driver Control.exe") -Force
+
+          # This is the complete installable UMDF package and its matching
+          # Control Panel. SignPath receives the GitHub Actions ZIP containing
+          # these exact files, with no stale driver payload mixed in.
+          $requiredFiles = @("MttVDD.dll", "MttVDD.inf", "MttVDD.cat", "vdd_settings.xml", "Virtual Driver Control.exe")
           foreach ($file in $requiredFiles) {
             if (-not (Test-Path (Join-Path $dest $file))) {
               throw "Required driver package file not found: $file"
@@ -203,8 +273,9 @@ jobs:
 
       # The SignPath project's default artifact configuration must accept the
       # GitHub artifact ZIP and preserve MttVDD.dll, MttVDD.inf, MttVDD.cat,
-      # and vdd_settings.xml. It should Authenticode-sign the DLL and catalog,
-      # while the INF and XML remain package payload.
+      # vdd_settings.xml, and Virtual Driver Control.exe. It should
+      # Authenticode-sign the DLL, catalog, and Control Panel executable while
+      # the INF and XML remain package payload.
       - name: Submit VDD package to SignPath
         id: submit_signing
         if: env.SIGNPATH_SIGNING_RUN == 'true'
@@ -233,12 +304,14 @@ jobs:
           $catalog = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "MttVDD.cat")
           $inf = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "MttVDD.inf")
           $settings = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "vdd_settings.xml")
+          $controlPanel = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "Virtual Driver Control.exe")
 
           foreach ($entry in @(
             @{ Name = "MttVDD.dll"; Files = $driver },
             @{ Name = "MttVDD.cat"; Files = $catalog },
             @{ Name = "MttVDD.inf"; Files = $inf },
-            @{ Name = "vdd_settings.xml"; Files = $settings }
+            @{ Name = "vdd_settings.xml"; Files = $settings },
+            @{ Name = "Virtual Driver Control.exe"; Files = $controlPanel }
           )) {
             if ($entry.Files.Count -ne 1) {
               throw "Expected exactly one signed package file named $($entry.Name), found $($entry.Files.Count)"
@@ -256,6 +329,9 @@ jobs:
 
           & $signtool.FullName verify /pa /v $catalog[0].FullName
           if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for $($catalog[0].FullName)" }
+
+          & $signtool.FullName verify /pa /v $controlPanel[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for $($controlPanel[0].FullName)" }
 
       - name: Upload signed driver package
         if: env.SIGNPATH_SIGNING_RUN == 'true'
