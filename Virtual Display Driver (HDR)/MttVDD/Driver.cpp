@@ -310,8 +310,11 @@ struct IndirectDeviceContextWrapper
 
 	void Cleanup()
 	{
-		delete pContext;
+		// Publish the unavailable state before destruction so a defensive
+		// callback check can never observe a pointer while it is being freed.
+		auto* context = pContext;
 		pContext = nullptr;
+		delete context;
 	}
 };
 
@@ -321,8 +324,9 @@ struct IndirectMonitorContextWrapper
 
 	void Cleanup()
 	{
-		delete pContext;
+		auto* context = pContext;
 		pContext = nullptr;
+		delete context;
 	}
 };
 void LogQueries(const char* severity, const std::wstring& xmlName) {
@@ -1648,27 +1652,6 @@ WDF_DECLARE_CONTEXT_TYPE(IndirectMonitorContextWrapper);
 
 namespace
 {
-	class IddCxMonitorRefScope
-	{
-	public:
-		explicit IddCxMonitorRefScope(IDDCX_MONITOR monitor)
-			: m_Object(reinterpret_cast<WDFOBJECT>(monitor))
-		{
-			WdfObjectReference(m_Object);
-		}
-
-		~IddCxMonitorRefScope()
-		{
-			WdfObjectDereference(m_Object);
-		}
-
-		IddCxMonitorRefScope(const IddCxMonitorRefScope&) = delete;
-		IddCxMonitorRefScope& operator=(const IddCxMonitorRefScope&) = delete;
-
-	private:
-		WDFOBJECT m_Object;
-	};
-
 	IndirectMonitorContext* GetMonitorContextIfReady(IDDCX_MONITOR monitorObject)
 	{
 		auto* wrapper = WdfObjectGet_IndirectMonitorContextWrapper(monitorObject);
@@ -3703,21 +3686,15 @@ IndirectMonitorContext::IndirectMonitorContext(
 	_In_ UINT ConnectorIndex) :
 	m_DeviceContext(DeviceContext),
 	m_Monitor(Monitor),
-	m_ConnectorIndex(ConnectorIndex),
-	m_hCursorEvent(nullptr),
-	m_PathActive(false),
-	m_HasCommittedTargetMode(false),
-	m_CommittedTargetSignal({})
+	m_ConnectorIndex(ConnectorIndex)
 {
 }
 
 IndirectMonitorContext::~IndirectMonitorContext()
 {
-	if (m_DeviceContext != nullptr)
-	{
-		m_DeviceContext->UnassignSwapChain(this);
-	}
-	ClearCursorEvent();
+	// The device context owns and stops all swap-chain processors. WDF can clean
+	// the parent before its child monitor objects, so do not dereference the raw
+	// parent pointer from this child cleanup callback.
 }
 
 IndirectDeviceContext* IndirectMonitorContext::GetDeviceContext() const
@@ -3733,57 +3710,6 @@ IDDCX_MONITOR IndirectMonitorContext::GetMonitor() const
 UINT IndirectMonitorContext::GetConnectorIndex() const
 {
 	return m_ConnectorIndex;
-}
-
-void IndirectMonitorContext::ApplyCommittedPath(
-	_In_ IDDCX_PATH_FLAGS Flags,
-	_In_ const DISPLAYCONFIG_VIDEO_SIGNAL_INFO& TargetSignal)
-{
-	bool shouldUnassign = false;
-	{
-		lock_guard<mutex> lock(m_StateMutex);
-		if ((Flags & IDDCX_PATH_FLAGS_ACTIVE) == 0)
-		{
-			m_PathActive = false;
-			shouldUnassign = true;
-		}
-		else if (TargetSignal.activeSize.cx == 0 || TargetSignal.activeSize.cy == 0)
-		{
-			vddlog("w", "Ignoring an active committed path with zero dimensions.");
-			return;
-		}
-		else
-		{
-			m_CommittedTargetSignal = TargetSignal;
-			m_HasCommittedTargetMode = true;
-			m_PathActive = true;
-		}
-	}
-
-	if (shouldUnassign && m_DeviceContext != nullptr)
-	{
-		m_DeviceContext->UnassignSwapChain(this);
-	}
-}
-
-void IndirectMonitorContext::ReplaceCursorEvent(_In_opt_ HANDLE CursorEvent)
-{
-	HANDLE oldEvent = nullptr;
-	{
-		lock_guard<mutex> lock(m_StateMutex);
-		oldEvent = m_hCursorEvent;
-		m_hCursorEvent = CursorEvent;
-	}
-
-	if (oldEvent != nullptr && oldEvent != INVALID_HANDLE_VALUE)
-	{
-		CloseHandle(oldEvent);
-	}
-}
-
-void IndirectMonitorContext::ClearCursorEvent()
-{
-	ReplaceCursorEvent(nullptr);
 }
 
 IndirectDeviceContext::IndirectDeviceContext(_In_ WDFDEVICE WdfDevice) :
@@ -4045,7 +3971,6 @@ void IndirectDeviceContext::AssignSwapChain(IndirectMonitorContext* MonitorConte
 	}
 
 	IDDCX_MONITOR Monitor = MonitorContext->GetMonitor();
-	MonitorContext->ClearCursorEvent();
 
 	// Only cleanup expired devices periodically, not on every assignment
 	static int assignmentCount = 0;
@@ -4084,7 +4009,7 @@ void IndirectDeviceContext::AssignSwapChain(IndirectMonitorContext* MonitorConte
 				nullptr, 
 				false,   
 				false,   
-				nullptr
+				"VirtualDisplayDriverMouse"
 			);
 
 			if (!mouseEvent)
@@ -4118,8 +4043,6 @@ void IndirectDeviceContext::AssignSwapChain(IndirectMonitorContext* MonitorConte
 				CloseHandle(mouseEvent); 
 				return;
 			}
-
-			MonitorContext->ReplaceCursorEvent(mouseEvent);
 
 			vddlog("d", "Hardware cursor setup completed successfully.");
 		}
@@ -4160,8 +4083,6 @@ void IndirectDeviceContext::UnassignSwapChain(IndirectMonitorContext* MonitorCon
 	{
 		vddlog("w", "UnassignSwapChain called for a monitor without an active processing thread.");
 	}
-
-	MonitorContext->ClearCursorEvent();
 }
 
 #pragma endregion
@@ -4205,22 +4126,11 @@ _Use_decl_annotations_
 NTSTATUS VirtualDisplayDriverAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN_COMMITMODES* pInArgs)
 {
 	UNREFERENCED_PARAMETER(AdapterObject);
+	UNREFERENCED_PARAMETER(pInArgs);
 
-	if (pInArgs == nullptr || (pInArgs->PathCount != 0 && pInArgs->pPaths == nullptr))
-	{
-		return STATUS_INVALID_PARAMETER;
-	}
-
-	for (UINT pathIndex = 0; pathIndex < pInArgs->PathCount; ++pathIndex)
-	{
-		const IDDCX_PATH& path = pInArgs->pPaths[pathIndex];
-		IddCxMonitorRefScope monitorRef(path.MonitorObject);
-		auto* monitorContext = GetMonitorContextIfReady(path.MonitorObject);
-		if (monitorContext != nullptr)
-		{
-			monitorContext->ApplyCommittedPath(path.Flags, path.TargetVideoSignalInfo);
-		}
-	}
+	// IddCx owns swap-chain lifetime and reports transitions through the
+	// assign/unassign callbacks. Do not tear down a swap chain from CommitModes;
+	// doing so races the display pipeline while the path is being committed.
 
 	return STATUS_SUCCESS;
 }
@@ -4281,7 +4191,6 @@ NTSTATUS VirtualDisplayDriverParseMonitorDescription(const IDARG_IN_PARSEMONITOR
 _Use_decl_annotations_
 NTSTATUS VirtualDisplayDriverMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
 {
-	IddCxMonitorRefScope monitorRef(MonitorObject);
 	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
 	{
 		return STATUS_INVALID_DEVICE_STATE;
@@ -4388,7 +4297,6 @@ NTSTATUS VirtualDisplayDriverMonitorQueryModes(IDDCX_MONITOR MonitorObject, cons
 		return STATUS_INVALID_PARAMETER;
 	}
 
-	IddCxMonitorRefScope monitorRef(MonitorObject);
 	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
 	{
 		return STATUS_INVALID_DEVICE_STATE;
@@ -4455,7 +4363,6 @@ NTSTATUS VirtualDisplayDriverMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject,
 		return STATUS_INVALID_PARAMETER;
 	}
 
-	IddCxMonitorRefScope monitorRef(MonitorObject);
 	auto* monitorContext = GetMonitorContextIfReady(MonitorObject);
 	if (monitorContext == nullptr || monitorContext->GetDeviceContext() == nullptr)
 	{
@@ -4476,7 +4383,6 @@ NTSTATUS VirtualDisplayDriverMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject,
 _Use_decl_annotations_
 NTSTATUS VirtualDisplayDriverMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObject)
 {
-	IddCxMonitorRefScope monitorRef(MonitorObject);
 	auto* monitorContext = GetMonitorContextIfReady(MonitorObject);
 	if (monitorContext == nullptr || monitorContext->GetDeviceContext() == nullptr)
 	{
@@ -4541,7 +4447,6 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetDefaultHdrMetadata(
 		return STATUS_INVALID_PARAMETER;
 	}
 
-	IddCxMonitorRefScope monitorRef(MonitorObject);
 	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
 	{
 		return STATUS_INVALID_DEVICE_STATE;
@@ -4737,7 +4642,6 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorQueryTargetModes2(
 		return STATUS_INVALID_PARAMETER;
 	}
 
-	IddCxMonitorRefScope monitorRef(MonitorObject);
 	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
 	{
 		return STATUS_INVALID_DEVICE_STATE;
@@ -4811,22 +4715,10 @@ NTSTATUS VirtualDisplayDriverEvtIddCxAdapterCommitModes2(
 )
 {
 	UNREFERENCED_PARAMETER(AdapterObject);
+	UNREFERENCED_PARAMETER(pInArgs);
 
-	if (pInArgs == nullptr || (pInArgs->PathCount != 0 && pInArgs->pPaths == nullptr))
-	{
-		return STATUS_INVALID_PARAMETER;
-	}
-
-	for (UINT pathIndex = 0; pathIndex < pInArgs->PathCount; ++pathIndex)
-	{
-		const IDDCX_PATH2& path = pInArgs->pPaths[pathIndex];
-		IddCxMonitorRefScope monitorRef(path.MonitorObject);
-		auto* monitorContext = GetMonitorContextIfReady(path.MonitorObject);
-		if (monitorContext != nullptr)
-		{
-			monitorContext->ApplyCommittedPath(path.Flags, path.TargetVideoSignalInfo);
-		}
-	}
+	// Swap-chain lifetime is driven exclusively by IddCx's assign/unassign
+	// callbacks. CommitModes2 is notification-only for this driver.
 
 	return STATUS_SUCCESS;
 }
@@ -4842,7 +4734,6 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetGammaRamp(
 		return STATUS_INVALID_PARAMETER;
 	}
 
-	IddCxMonitorRefScope monitorRef(MonitorObject);
 	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
 	{
 		return STATUS_INVALID_DEVICE_STATE;

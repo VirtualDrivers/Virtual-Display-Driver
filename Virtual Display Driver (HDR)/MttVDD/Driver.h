@@ -119,21 +119,10 @@ namespace Microsoft
             IDDCX_MONITOR GetMonitor() const;
             UINT GetConnectorIndex() const;
 
-            void ApplyCommittedPath(
-                _In_ IDDCX_PATH_FLAGS Flags,
-                _In_ const DISPLAYCONFIG_VIDEO_SIGNAL_INFO& TargetSignal);
-            void ReplaceCursorEvent(_In_opt_ HANDLE CursorEvent);
-            void ClearCursorEvent();
-
         private:
             IndirectDeviceContext* m_DeviceContext;
             IDDCX_MONITOR m_Monitor;
             UINT m_ConnectorIndex;
-            std::mutex m_StateMutex;
-            HANDLE m_hCursorEvent;
-            bool m_PathActive;
-            bool m_HasCommittedTargetMode;
-            DISPLAYCONFIG_VIDEO_SIGNAL_INFO m_CommittedTargetSignal;
         };
 
         /// <summary>
