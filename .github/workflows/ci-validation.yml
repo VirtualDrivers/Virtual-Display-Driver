@@ -5,21 +5,35 @@ on:
   pull_request:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'LICENSE*'
   workflow_dispatch:
+    inputs:
+      sign:
+        description: Submit the built Release packages to SignPath
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
-  cancel-in-progress: true
+  # A replacement validation build may cancel an older validation build, but a
+  # submitted signing request must be allowed to complete and download its result.
+  cancel-in-progress: ${{ !((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.sign)) }}
 
 env:
   BUILD_CONFIGURATION: Release
   VDD_SOLUTION: Virtual Display Driver (HDR)/MttVDD.sln
+  # Signing is deliberate: release tags sign automatically, and a manual run
+  # must explicitly opt in. Pull requests and ordinary branch pushes never
+  # receive the SignPath token.
+  SIGNPATH_SIGNING_RUN: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.sign) }}
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -142,9 +156,110 @@ jobs:
           New-Item -ItemType Directory -Path $dest -Force | Out-Null
           Copy-Item "$outDir\*" -Destination $dest -Recurse -Force
 
-      - name: Upload artifacts
+          # This is the complete installable UMDF package. SignPath receives the
+          # GitHub Actions ZIP containing these exact files, with no installer or
+          # unrelated driver payload mixed in.
+          $requiredFiles = @("MttVDD.dll", "MttVDD.inf", "MttVDD.cat", "vdd_settings.xml")
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path (Join-Path $dest $file))) {
+              throw "Required driver package file not found: $file"
+            }
+          }
+
+      - name: Upload unsigned driver package
+        id: upload_unsigned_driver_package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}
           path: artifacts/VDD/${{ matrix.platform }}/
           if-no-files-found: error
+
+      - name: Check SignPath configuration
+        if: env.SIGNPATH_SIGNING_RUN == 'true'
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORG_ID: ${{ vars.SIGNPATH_ORG_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ vars.SIGNPATH_POLICY_SLUG }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $required = @("SIGNPATH_API_TOKEN", "SIGNPATH_ORG_ID", "SIGNPATH_PROJECT_SLUG", "SIGNPATH_POLICY_SLUG")
+          $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+          if ($missing.Count -gt 0) {
+            throw "Missing SignPath configuration: $($missing -join ', ')"
+          }
+
+      # The SignPath project's default artifact configuration must accept the
+      # GitHub artifact ZIP and preserve MttVDD.dll, MttVDD.inf, MttVDD.cat,
+      # and vdd_settings.xml. It should Authenticode-sign the DLL and catalog,
+      # while the INF and XML remain package payload.
+      - name: Submit VDD package to SignPath
+        id: submit_signing
+        if: env.SIGNPATH_SIGNING_RUN == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092  # v3.0.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload_unsigned_driver_package.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-artifacts/VDD/${{ matrix.platform }}/
+
+      - name: Verify signed driver package
+        if: env.SIGNPATH_SIGNING_RUN == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $signedRoot = "signed-artifacts\VDD\${{ matrix.platform }}"
+          if (-not (Test-Path $signedRoot)) { throw "SignPath did not create $signedRoot" }
+
+          $driver = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "MttVDD.dll")
+          $catalog = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "MttVDD.cat")
+          $inf = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "MttVDD.inf")
+          $settings = @(Get-ChildItem -Path $signedRoot -Recurse -File -Filter "vdd_settings.xml")
+
+          foreach ($entry in @(
+            @{ Name = "MttVDD.dll"; Files = $driver },
+            @{ Name = "MttVDD.cat"; Files = $catalog },
+            @{ Name = "MttVDD.inf"; Files = $inf },
+            @{ Name = "vdd_settings.xml"; Files = $settings }
+          )) {
+            if ($entry.Files.Count -ne 1) {
+              throw "Expected exactly one signed package file named $($entry.Name), found $($entry.Files.Count)"
+            }
+          }
+
+          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -File -Filter "signtool.exe" |
+            Where-Object { $_.FullName -match "\\x64\\signtool.exe$" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe was not found in the installed Windows SDK" }
+
+          & $signtool.FullName verify /pa /v $driver[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for $($driver[0].FullName)" }
+
+          & $signtool.FullName verify /pa /v $catalog[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for $($catalog[0].FullName)" }
+
+      - name: Upload signed driver package
+        if: env.SIGNPATH_SIGNING_RUN == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}-signed
+          path: signed-artifacts/VDD/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Add signing summary
+        if: env.SIGNPATH_SIGNING_RUN == 'true'
+        shell: pwsh
+        env:
+          SIGNING_REQUEST_URL: ${{ steps.submit_signing.outputs.signing-request-web-url }}
+        run: |
+          "## SignPath signing (${{ matrix.platform }})" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "- Signed package: `VDD-${{ matrix.platform }}-${{ env.BUILD_CONFIGURATION }}-signed`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "- Signing request: $env:SIGNING_REQUEST_URL" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
