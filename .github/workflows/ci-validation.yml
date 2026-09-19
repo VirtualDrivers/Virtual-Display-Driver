@@ -133,6 +133,15 @@ jobs:
           $umdfMinor = ($umdfBest.Name -split '\.')[1]
           Write-Output "Using UMDF version: $($umdfBest.Name) (minor=$umdfMinor) from $($umdfBest.FullName)"
 
+          $now = [DateTime]::UtcNow
+          $buildNumber = [int]$env:GITHUB_RUN_NUMBER
+          if ($buildNumber -lt 0 -or $buildNumber -gt 65535) {
+            throw "GITHUB_RUN_NUMBER must fit an INF version component (0-65535): $buildNumber"
+          }
+          $driverVersion = "{0}.{1}.{2}.{3}" -f ($now.Year % 100), $now.Month, $now.Day, $buildNumber
+          $driverDate = $now.ToString("MM/dd/yyyy", [Globalization.CultureInfo]::InvariantCulture)
+          Write-Output "Stamping DriverVer=$driverDate,$driverVersion"
+
           msbuild $sln `
             /m `
             /t:Build `
@@ -141,6 +150,8 @@ jobs:
             /p:WindowsSdkDir="$env:WINDOWS_SDK_DIR" `
             /p:WindowsTargetPlatformVersion="$env:WINDOWS_TARGET_PLATFORM_VERSION" `
             /p:UMDF_VERSION_MINOR="$umdfMinor" `
+            /p:VddDriverVersion="$driverVersion" `
+            /p:VddDriverDate="$driverDate" `
             /p:EnableInfVerif=false `
             /p:RunApiValidator=false `
             /verbosity:minimal

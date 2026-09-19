@@ -175,6 +175,12 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <!-- Driver versions use YY.M.D.build_number. CI supplies its run number;
+         local builds default to build 1 for the current UTC date. -->
+    <VddDriverVersion Condition="'$(VddDriverVersion)' == ''">$([System.DateTime]::UtcNow.ToString('yy.M.d')).1</VddDriverVersion>
+    <VddDriverDate Condition="'$(VddDriverDate)' == ''">$([System.DateTime]::UtcNow.ToString('MM/dd/yyyy'))</VddDriverDate>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <DebuggerFlavor>DbgengRemoteDebugger</DebuggerFlavor>
     <RunCodeAnalysis>true</RunCodeAnalysis>
@@ -324,9 +330,6 @@
     <PostBuildEvent>
       <Command>copy "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)\MttVDD"</Command>
     </PostBuildEvent>
-    <Inf>
-      <DateStamp>10/16/2024</DateStamp>
-    </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <ClCompile>
@@ -348,8 +351,11 @@
     <PostBuildEvent>
       <Command>copy "$(ProjectDir)..\vdd_settings.xml" "$(TargetDir)\MttVDD"</Command>
     </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
     <Inf>
-      <DateStamp>10/16/2024</DateStamp>
+      <DateStamp>$(VddDriverDate)</DateStamp>
+      <TimeStamp>$(VddDriverVersion)</TimeStamp>
     </Inf>
   </ItemDefinitionGroup>
   <ItemGroup>
