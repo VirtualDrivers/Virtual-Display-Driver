@@ -214,6 +214,7 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORG_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: VDD_driver_package
           github-artifact-id: ${{ steps.upload_unsigned_driver_package.outputs.artifact-id }}
           github-token: ${{ github.token }}
           wait-for-completion: true
