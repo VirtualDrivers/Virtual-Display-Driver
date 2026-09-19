@@ -1,0 +1,66 @@
+{
+  "name": "virtual-driver-control",
+  "version": "2.0.0",
+  "description": "Modern control panel for the Virtual Display Driver (MttVDD)",
+  "main": "./out/main/index.js",
+  "author": "Virtual Driver Control",
+  "license": "MIT",
+  "keywords": [
+    "electron",
+    "virtual-display",
+    "driver-control",
+    "iddcx"
+  ],
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test:generated": "node scripts/render-ps-scripts.mjs && node scripts/render-audio-interop.mjs",
+    "build:win": "electron-vite build && electron-builder --win",
+    "build-portable": "electron-vite build && electron-builder --win portable",
+    "build-portable:x64": "electron-vite build && electron-builder --win portable --x64",
+    "build-portable:arm64": "electron-vite build && electron-builder --win portable --arm64",
+    "build-dir": "electron-vite build && electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.virtualdriver.control",
+    "productName": "Virtual Driver Control",
+    "directories": {
+      "output": "dist"
+    },
+    "icon": "./resources/VirtualDisplayDriver.ico",
+    "files": [
+      "out/**",
+      "resources/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "./resources/VirtualDisplayDriver.ico",
+      "target": "portable",
+      "artifactName": "${productName}-${buildVersion}-${arch}.${ext}"
+    },
+    "portable": {
+      "requestExecutionLevel": "admin"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
+    "electron-vite": "^5.0.0",
+    "fast-xml-parser": "^5.8.0",
+    "lucide-react": "^1.17.0",
+    "motion": "^12.40.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.5",
+    "zustand": "^5.0.14"
+  }
+}

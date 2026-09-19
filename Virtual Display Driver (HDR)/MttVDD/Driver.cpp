@@ -310,8 +310,23 @@ struct IndirectDeviceContextWrapper
 
 	void Cleanup()
 	{
-		delete pContext;
+		// Publish the unavailable state before destruction so a defensive
+		// callback check can never observe a pointer while it is being freed.
+		auto* context = pContext;
 		pContext = nullptr;
+		delete context;
+	}
+};
+
+struct IndirectMonitorContextWrapper
+{
+	IndirectMonitorContext* pContext;
+
+	void Cleanup()
+	{
+		auto* context = pContext;
+		pContext = nullptr;
+		delete context;
 	}
 };
 void LogQueries(const char* severity, const std::wstring& xmlName) {
@@ -1633,6 +1648,21 @@ void InitializeD3DDeviceAndLogGPU() {
 
 // This macro creates the methods for accessing an IndirectDeviceContextWrapper as a context for a WDF object
 WDF_DECLARE_CONTEXT_TYPE(IndirectDeviceContextWrapper);
+WDF_DECLARE_CONTEXT_TYPE(IndirectMonitorContextWrapper);
+
+namespace
+{
+	IndirectMonitorContext* GetMonitorContextIfReady(IDDCX_MONITOR monitorObject)
+	{
+		auto* wrapper = WdfObjectGet_IndirectMonitorContextWrapper(monitorObject);
+		if (wrapper == nullptr || wrapper->pContext == nullptr)
+		{
+			return nullptr;
+		}
+
+		return wrapper->pContext;
+	}
+}
 
 extern "C" BOOL WINAPI DllMain(
 	_In_ HINSTANCE hInstance,
@@ -3650,11 +3680,41 @@ void IndirectDeviceContext::CleanupExpiredDevices()
 	}
 }
 
+IndirectMonitorContext::IndirectMonitorContext(
+	_In_ IndirectDeviceContext* DeviceContext,
+	_In_ IDDCX_MONITOR Monitor,
+	_In_ UINT ConnectorIndex) :
+	m_DeviceContext(DeviceContext),
+	m_Monitor(Monitor),
+	m_ConnectorIndex(ConnectorIndex)
+{
+}
+
+IndirectMonitorContext::~IndirectMonitorContext()
+{
+	// The device context owns and stops all swap-chain processors. WDF can clean
+	// the parent before its child monitor objects, so do not dereference the raw
+	// parent pointer from this child cleanup callback.
+}
+
+IndirectDeviceContext* IndirectMonitorContext::GetDeviceContext() const
+{
+	return m_DeviceContext;
+}
+
+IDDCX_MONITOR IndirectMonitorContext::GetMonitor() const
+{
+	return m_Monitor;
+}
+
+UINT IndirectMonitorContext::GetConnectorIndex() const
+{
+	return m_ConnectorIndex;
+}
+
 IndirectDeviceContext::IndirectDeviceContext(_In_ WDFDEVICE WdfDevice) :
 	m_WdfDevice(WdfDevice),
-	m_Adapter(nullptr),
-	m_Monitor(nullptr),
-	m_Monitor2(nullptr)
+	m_Adapter(nullptr)
 {
 	// Initialize Phase 5: Final Integration and Testing
 	NTSTATUS initStatus = InitializePhase5Integration();
@@ -3795,7 +3855,15 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	// ==============================
 
 	WDF_OBJECT_ATTRIBUTES Attr;
-	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, IndirectDeviceContextWrapper);
+	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, IndirectMonitorContextWrapper);
+	Attr.EvtCleanupCallback = [](WDFOBJECT Object)
+		{
+			auto* wrapper = WdfObjectGet_IndirectMonitorContextWrapper(Object);
+			if (wrapper != nullptr)
+			{
+				wrapper->Cleanup();
+			}
+		};
 
 	IDDCX_MONITOR_INFO MonitorInfo = {};
 	MonitorInfo.Size = sizeof(MonitorInfo);
@@ -3845,15 +3913,28 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	if (NT_SUCCESS(Status))
 	{
 		vddlog("d", "Monitor created successfully.");
-		m_Monitor = MonitorCreateOut.MonitorObject;
+		IDDCX_MONITOR monitorObject = MonitorCreateOut.MonitorObject;
 
-		// Associate the monitor with this device context
-		auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(MonitorCreateOut.MonitorObject);
-		pContext->pContext = this;
+		// Associate monitor-specific state with the WDF monitor object.
+		auto* monitorWrapper = WdfObjectGet_IndirectMonitorContextWrapper(monitorObject);
+		if (monitorWrapper == nullptr)
+		{
+			vddlog("e", "Failed to get the monitor context wrapper.");
+			WdfObjectDelete(monitorObject);
+			return;
+		}
+
+		monitorWrapper->pContext = new (nothrow) IndirectMonitorContext(this, monitorObject, index);
+		if (monitorWrapper->pContext == nullptr)
+		{
+			vddlog("e", "Failed to allocate the monitor runtime context.");
+			WdfObjectDelete(monitorObject);
+			return;
+		}
 
 		// Tell the OS that the monitor has been plugged in
 		IDARG_OUT_MONITORARRIVAL ArrivalOut;
-		Status = IddCxMonitorArrival(m_Monitor, &ArrivalOut);
+		Status = IddCxMonitorArrival(monitorObject, &ArrivalOut);
 		if (NT_SUCCESS(Status))
 		{
 			vddlog("d", "Monitor arrival successfully reported.");
@@ -3863,6 +3944,13 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 			stringstream ss;
 			ss << "Failed to report monitor arrival. Status: " << Status;
 			vddlog("e", ss.str().c_str());
+
+			// Arrival failure leaves no usable monitor. Tear down the context and
+			// WDF object so later callbacks cannot observe a half-created monitor.
+			IndirectMonitorContext* failedContext = monitorWrapper->pContext;
+			monitorWrapper->pContext = nullptr;
+			delete failedContext;
+			WdfObjectDelete(monitorObject);
 		}
 	}
 	else
@@ -3873,8 +3961,17 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	}
 }
 
-void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
+void IndirectDeviceContext::AssignSwapChain(IndirectMonitorContext* MonitorContext, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
 {
+	if (MonitorContext == nullptr)
+	{
+		vddlog("e", "Cannot assign a swap chain without a monitor context.");
+		WdfObjectDelete(SwapChain);
+		return;
+	}
+
+	IDDCX_MONITOR Monitor = MonitorContext->GetMonitor();
+
 	// Only cleanup expired devices periodically, not on every assignment
 	static int assignmentCount = 0;
 	if (++assignmentCount % 10 == 0) {
@@ -3941,7 +4038,7 @@ void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHA
 				&hwCursor
 			);
 
-			if (FAILED(Status))
+			if (!NT_SUCCESS(Status))
 			{
 				CloseHandle(mouseEvent); 
 				return;
@@ -3958,8 +4055,14 @@ void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHA
 }
 
 
-void IndirectDeviceContext::UnassignSwapChain(IDDCX_MONITOR Monitor)
+void IndirectDeviceContext::UnassignSwapChain(IndirectMonitorContext* MonitorContext)
 {
+	if (MonitorContext == nullptr)
+	{
+		return;
+	}
+
+	IDDCX_MONITOR Monitor = MonitorContext->GetMonitor();
 	std::unique_ptr<SwapChainProcessor> processorToStop;
 
 	{
@@ -3992,21 +4095,30 @@ NTSTATUS VirtualDisplayDriverAdapterInitFinished(IDDCX_ADAPTER AdapterObject, co
 	// This is called when the OS has finished setting up the adapter for use by the IddCx driver. It's now possible
 	// to report attached monitors.
 
-	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
-	if (NT_SUCCESS(pInArgs->AdapterInitStatus))
+	if (pInArgs == nullptr)
 	{
-		pContext->pContext->FinishInit();
-		vddlog("d", "Adapter initialization finished successfully.");
+		vddlog("e", "Adapter initialization callback received null input arguments.");
+		return STATUS_INVALID_PARAMETER;
 	}
-	else
+
+	if (!NT_SUCCESS(pInArgs->AdapterInitStatus))
 	{
 		stringstream ss;
 		ss << "Adapter initialization failed. Status: " << pInArgs->AdapterInitStatus;
 		vddlog("e", ss.str().c_str());
+		return pInArgs->AdapterInitStatus;
 	}
-	vddlog("i", "Finished Setting up adapter.");
-	
 
+	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
+	if (pContext == nullptr || pContext->pContext == nullptr)
+	{
+		vddlog("e", "Adapter initialization completed without a valid device context.");
+		return STATUS_INVALID_DEVICE_STATE;
+	}
+
+	pContext->pContext->FinishInit();
+	vddlog("d", "Adapter initialization finished successfully.");
+	vddlog("i", "Finished Setting up adapter.");
 	return STATUS_SUCCESS;
 }
 
@@ -4016,13 +4128,9 @@ NTSTATUS VirtualDisplayDriverAdapterCommitModes(IDDCX_ADAPTER AdapterObject, con
 	UNREFERENCED_PARAMETER(AdapterObject);
 	UNREFERENCED_PARAMETER(pInArgs);
 
-	// For the sample, do nothing when modes are picked - the swap-chain is taken care of by IddCx
-
-	// ==============================
-	// TODO: In a real driver, this function would be used to reconfigure the device to commit the new modes. Loop
-	// through pInArgs->pPaths and look for IDDCX_PATH_FLAGS_ACTIVE. Any path not active is inactive (e.g. the monitor
-	// should be turned off).
-	// ==============================
+	// IddCx owns swap-chain lifetime and reports transitions through the
+	// assign/unassign callbacks. Do not tear down a swap chain from CommitModes;
+	// doing so races the display pipeline while the path is being committed.
 
 	return STATUS_SUCCESS;
 }
@@ -4033,6 +4141,11 @@ NTSTATUS VirtualDisplayDriverParseMonitorDescription(const IDARG_IN_PARSEMONITOR
 	// TODO: In a real driver, this function would be called to generate monitor modes for an EDID by parsing it. In
 	// this sample driver, we hard-code the EDID, so this function can generate known modes.
 	// ==============================
+
+	if (pInArgs == nullptr || pOutArgs == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
 
 	stringstream logStream;
 	logStream << "Parsing monitor description. Input buffer count: " << pInArgs->MonitorModeBufferInputCount;
@@ -4055,6 +4168,11 @@ NTSTATUS VirtualDisplayDriverParseMonitorDescription(const IDARG_IN_PARSEMONITOR
 	}
 	else
 	{
+		if (pInArgs->pMonitorModes == nullptr)
+		{
+			return STATUS_INVALID_PARAMETER;
+		}
+
 		// Copy the known modes to the output buffer
 		for (DWORD ModeIndex = 0; ModeIndex < monitorModes.size(); ModeIndex++)
 		{
@@ -4073,7 +4191,11 @@ NTSTATUS VirtualDisplayDriverParseMonitorDescription(const IDARG_IN_PARSEMONITOR
 _Use_decl_annotations_
 NTSTATUS VirtualDisplayDriverMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
 {
-	UNREFERENCED_PARAMETER(MonitorObject);
+	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
+	{
+		return STATUS_INVALID_DEVICE_STATE;
+	}
+
 	UNREFERENCED_PARAMETER(pInArgs);
 	UNREFERENCED_PARAMETER(pOutArgs);
 
@@ -4170,7 +4292,15 @@ void CreateTargetMode2(IDDCX_TARGET_MODE2& Mode, UINT Width, UINT Height, UINT V
 _Use_decl_annotations_
 NTSTATUS VirtualDisplayDriverMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)////////////////////////////////////////////////////////////////////////////////
 {
-	UNREFERENCED_PARAMETER(MonitorObject);
+	if (pInArgs == nullptr || pOutArgs == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
+	{
+		return STATUS_INVALID_DEVICE_STATE;
+	}
 
 	vector<IDDCX_TARGET_MODE> TargetModes(monitorModes.size());
 
@@ -4198,18 +4328,28 @@ NTSTATUS VirtualDisplayDriverMonitorQueryModes(IDDCX_MONITOR MonitorObject, cons
 	logStream << "Number of target modes to output: " << pOutArgs->TargetModeBufferOutputCount;
 	vddlog("d", logStream.str().c_str());
 
-	if (pInArgs->TargetModeBufferInputCount >= TargetModes.size())
+	if (pInArgs->TargetModeBufferInputCount == 0)
+	{
+		return STATUS_SUCCESS;
+	}
+	else if (pInArgs->TargetModeBufferInputCount < TargetModes.size())
+	{
+		logStream.str("");
+		logStream << "Input buffer too small. Required: " << TargetModes.size()
+			<< ", Provided: " << pInArgs->TargetModeBufferInputCount;
+		vddlog("w", logStream.str().c_str());
+		return STATUS_BUFFER_TOO_SMALL;
+	}
+	else if (pInArgs->pTargetModes == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+	else
 	{
 		logStream.str("");
 		logStream << "Copying target modes to output buffer.";
 		vddlog("d", logStream.str().c_str());
 		copy(TargetModes.begin(), TargetModes.end(), pInArgs->pTargetModes);
-	}
-	else {
-		logStream.str("");
-		logStream << "Input buffer too small. Required: " << TargetModes.size()
-			<< ", Provided: " << pInArgs->TargetModeBufferInputCount;
-		vddlog("w", logStream.str().c_str());
 	}
 
 	return STATUS_SUCCESS;
@@ -4218,14 +4358,24 @@ NTSTATUS VirtualDisplayDriverMonitorQueryModes(IDDCX_MONITOR MonitorObject, cons
 _Use_decl_annotations_
 NTSTATUS VirtualDisplayDriverMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
 {
+	if (pInArgs == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	auto* monitorContext = GetMonitorContextIfReady(MonitorObject);
+	if (monitorContext == nullptr || monitorContext->GetDeviceContext() == nullptr)
+	{
+		return STATUS_INVALID_DEVICE_STATE;
+	}
+
 	stringstream logStream;
 	logStream << "Assigning swap chain:"
 		<< "\n  hSwapChain: " << pInArgs->hSwapChain
 		<< "\n  RenderAdapterLuid: " << pInArgs->RenderAdapterLuid.LowPart << "-" << pInArgs->RenderAdapterLuid.HighPart
 		<< "\n  hNextSurfaceAvailable: " << pInArgs->hNextSurfaceAvailable;
 	vddlog("d", logStream.str().c_str());
-	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(MonitorObject);
-	pContext->pContext->AssignSwapChain(MonitorObject, pInArgs->hSwapChain, pInArgs->RenderAdapterLuid, pInArgs->hNextSurfaceAvailable);
+	monitorContext->GetDeviceContext()->AssignSwapChain(monitorContext, pInArgs->hSwapChain, pInArgs->RenderAdapterLuid, pInArgs->hNextSurfaceAvailable);
 	vddlog("d", "Swap chain assigned successfully.");
 	return STATUS_SUCCESS;
 }
@@ -4233,11 +4383,16 @@ NTSTATUS VirtualDisplayDriverMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject,
 _Use_decl_annotations_
 NTSTATUS VirtualDisplayDriverMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObject)
 {
+	auto* monitorContext = GetMonitorContextIfReady(MonitorObject);
+	if (monitorContext == nullptr || monitorContext->GetDeviceContext() == nullptr)
+	{
+		return STATUS_INVALID_DEVICE_STATE;
+	}
+
 	stringstream logStream;
 	logStream << "Unassigning swap chain for monitor object: " << MonitorObject;
 	vddlog("d", logStream.str().c_str());
-	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(MonitorObject);
-	pContext->pContext->UnassignSwapChain(MonitorObject);
+	monitorContext->GetDeviceContext()->UnassignSwapChain(monitorContext);
 	vddlog("d", "Swap chain unassigned successfully.");
 	return STATUS_SUCCESS;
 }
@@ -4287,7 +4442,15 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetDefaultHdrMetadata(
 	const IDARG_IN_MONITOR_SET_DEFAULT_HDR_METADATA* pInArgs
 )
 {
-	UNREFERENCED_PARAMETER(pInArgs);
+	if (pInArgs == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
+	{
+		return STATUS_INVALID_DEVICE_STATE;
+	}
 	
 	stringstream logStream;
 	logStream << "=== PROCESSING HDR METADATA REQUEST ===";
@@ -4387,6 +4550,11 @@ NTSTATUS VirtualDisplayDriverEvtIddCxParseMonitorDescription2(
 	// this sample driver, we hard-code the EDID, so this function can generate known modes.
 	// ==============================
 
+	if (pInArgs == nullptr || pOutArgs == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
 	stringstream logStream;
 	logStream << "Parsing monitor description:"
 		<< "\n  MonitorModeBufferInputCount: " << pInArgs->MonitorModeBufferInputCount
@@ -4469,7 +4637,16 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorQueryTargetModes2(
 	IDARG_OUT_QUERYTARGETMODES* pOutArgs
 )
 {
-	//UNREFERENCED_PARAMETER(MonitorObject);
+	if (pInArgs == nullptr || pOutArgs == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
+	{
+		return STATUS_INVALID_DEVICE_STATE;
+	}
+
 	stringstream logStream;
 
 	logStream << "Querying target modes:"
@@ -4501,7 +4678,20 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorQueryTargetModes2(
 	logStream << "Output target modes count: " << pOutArgs->TargetModeBufferOutputCount;
 	vddlog("d", logStream.str().c_str());
 
-	if (pInArgs->TargetModeBufferInputCount >= TargetModes.size())
+	if (pInArgs->TargetModeBufferInputCount == 0)
+	{
+		return STATUS_SUCCESS;
+	}
+	else if (pInArgs->TargetModeBufferInputCount < TargetModes.size())
+	{
+		vddlog("w", "Input buffer is too small for target modes.");
+		return STATUS_BUFFER_TOO_SMALL;
+	}
+	else if (pInArgs->pTargetModes == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+	else
 	{
 		copy(TargetModes.begin(), TargetModes.end(), pInArgs->pTargetModes);
 
@@ -4515,11 +4705,6 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorQueryTargetModes2(
 		}
 		vddlog("d", logStream.str().c_str());
 	}
-	else
-	{
-		vddlog("w", "Input buffer is too small for target modes.");
-	}
-
 	return STATUS_SUCCESS;
 }
 
@@ -4532,6 +4717,9 @@ NTSTATUS VirtualDisplayDriverEvtIddCxAdapterCommitModes2(
 	UNREFERENCED_PARAMETER(AdapterObject);
 	UNREFERENCED_PARAMETER(pInArgs);
 
+	// Swap-chain lifetime is driven exclusively by IddCx's assign/unassign
+	// callbacks. CommitModes2 is notification-only for this driver.
+
 	return STATUS_SUCCESS;
 }
 
@@ -4541,6 +4729,16 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetGammaRamp(
 	const IDARG_IN_SET_GAMMARAMP* pInArgs
 )
 {
+	if (pInArgs == nullptr)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	if (GetMonitorContextIfReady(MonitorObject) == nullptr)
+	{
+		return STATUS_INVALID_DEVICE_STATE;
+	}
+
 	stringstream logStream;
 	logStream << "=== PROCESSING GAMMA RAMP REQUEST ===";
 	vddlog("d", logStream.str().c_str());

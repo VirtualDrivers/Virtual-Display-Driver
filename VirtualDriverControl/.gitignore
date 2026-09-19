@@ -1,0 +1,5 @@
+node_modules/
+dist/
+out/
+out-ps-check/
+*.tsbuildinfo
