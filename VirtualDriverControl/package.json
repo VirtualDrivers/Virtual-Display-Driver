@@ -40,7 +40,7 @@
     "win": {
       "icon": "./resources/VirtualDisplayDriver.ico",
       "target": "portable",
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${buildVersion}-${arch}.${ext}"
     },
     "portable": {
       "requestExecutionLevel": "admin"

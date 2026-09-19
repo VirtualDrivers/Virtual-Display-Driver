@@ -4,6 +4,9 @@ import { resolve } from 'path'
 
 export default defineConfig({
   main: {
+    define: {
+      'process.env.VDC_RELEASE_VERSION': JSON.stringify(process.env.VDC_RELEASE_VERSION ?? '')
+    },
     resolve: {
       alias: {
         '@shared': resolve(__dirname, 'src/shared')

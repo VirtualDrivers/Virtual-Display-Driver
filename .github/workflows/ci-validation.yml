@@ -62,8 +62,11 @@ jobs:
             throw "GITHUB_RUN_NUMBER must fit an INF version component (0-65535): $buildNumber"
           }
 
-          $releaseVersion = "{0}.{1}.{2}.{3}" -f ($now.Year % 100), $now.Month, $now.Day, $buildNumber
+          $releaseBaseVersion = "{0}.{1}.{2}" -f ($now.Year % 100), $now.Month, $now.Day
+          $releaseVersion = "$releaseBaseVersion.$buildNumber"
           Write-Output "Using release version $releaseVersion"
+          "RELEASE_BASE_VERSION=$releaseBaseVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_BUILD_NUMBER=$buildNumber" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "RELEASE_VERSION=$releaseVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Setup MSBuild
@@ -191,8 +194,14 @@ jobs:
             npm audit --audit-level=moderate
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-            npm version $env:RELEASE_VERSION --no-git-tag-version
+            # npm package versions are three-part SemVer. electron-builder
+            # combines this base with BUILD_NUMBER for the Windows four-part
+            # FileVersion and ${buildVersion} artifact-name macro.
+            npm version $env:RELEASE_BASE_VERSION --no-git-tag-version
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            $env:BUILD_NUMBER = $env:RELEASE_BUILD_NUMBER
+            $env:VDC_RELEASE_VERSION = $env:RELEASE_VERSION
 
             npm run typecheck
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

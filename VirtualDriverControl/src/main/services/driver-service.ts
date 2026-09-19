@@ -131,7 +131,7 @@ export class DriverService {
       windowsBuild: os.release(),
       arch: os.arch(),
       isAdmin,
-      appVersion: app.getVersion(),
+      appVersion: process.env.VDC_RELEASE_VERSION || app.getVersion(),
       electronVersion: process.versions.electron,
       settingsPath: `${this.paths.getBaseDir()}\\vdd_settings.xml`,
       logsDir: `${this.paths.getBaseDir()}\\Logs`
