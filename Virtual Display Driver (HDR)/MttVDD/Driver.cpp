@@ -465,6 +465,7 @@ const char* XorCursorSupportLevelToString(IDDCX_XOR_CURSOR_SUPPORT level) {
 
 
 vector<unsigned char> Microsoft::IndirectDisp::IndirectDeviceContext::s_KnownMonitorEdid; //Changed to support static vector
+std::mutex Microsoft::IndirectDisp::IndirectDeviceContext::s_KnownMonitorEdidMutex; // Guards the reassignment/read of s_KnownMonitorEdid across threads
 
 std::map<LUID, std::shared_ptr<Direct3DDevice>, Microsoft::IndirectDisp::LuidComparator> Microsoft::IndirectDisp::IndirectDeviceContext::s_DeviceCache;
 std::mutex Microsoft::IndirectDisp::IndirectDeviceContext::s_DeviceCacheMutex;
@@ -3744,6 +3745,13 @@ SwapChainProcessor::SwapChainProcessor(IDDCX_SWAPCHAIN hSwapChain, shared_ptr<Di
 		logStream.str("");
 		logStream << "Failed to create terminate event. GetLastError: " << GetLastError();
 		vddlog("e", logStream.str().c_str());
+		// Do not start the thread. RunCore builds its wait list from m_hTerminateEvent, so
+		// without it the only remaining wake-up is the IddCx signalling a buffer event --
+		// which does not happen on a swap chain that is already unassigned. The destructor
+		// would then wait INFINITE on a thread it can never signal, hanging device teardown.
+		// It already tolerates a null m_hThread, so leaving it unset is the safe state.
+		vddlog("e", "Not starting the swap-chain processing thread without a terminate event.");
+		return;
 	}
 	else
 	{
@@ -3891,7 +3899,9 @@ void SwapChainProcessor::Run()
 	}
 	/*
 	AvRevertMmThreadCharacteristics(AvTaskHandle);
-	*/ //error handling when reversing multimedia thread characteristics 
+	*/ //error handling when reversing multimedia thread characteristics
+	// Only revert when the handle is valid: AvSetMmThreadCharacteristicsW returns NULL on
+	// failure, and passing that to AvRevertMmThreadCharacteristics violates its contract.
 	if (!AvTaskHandle)
 	{
 		logStream.str("");
@@ -3920,6 +3930,13 @@ void SwapChainProcessor::RunCore()
 	int retryCount = 0;
 	const int maxRetries = 5;
 
+	// Validate before dereferencing: this check used to sit below the As() call, so a null
+	// m_Device was already dereferenced by the time it ran.
+	if (!m_Device || !m_Device->Device) {
+		vddlog("e", "Direct3DDevice became invalid during SwapChain processing");
+		return;
+	}
+
 	// Get the DXGI device interface
 	ComPtr<IDXGIDevice> DxgiDevice;
 	HRESULT hr = m_Device->Device.As(&DxgiDevice);
@@ -3931,13 +3948,6 @@ void SwapChainProcessor::RunCore()
 	}
 	logStream << "DXGI device interface obtained successfully.";
 	//vddlog("d", logStream.str().c_str());
-
-
-	// Validate that our device is still valid before setting it
-	if (!m_Device || !m_Device->Device) {
-		vddlog("e", "Direct3DDevice became invalid during SwapChain processing");
-		return;
-	}
 
 	IDARG_IN_SWAPCHAINSETDEVICE SetDevice = {};
 	SetDevice.pDevice = DxgiDevice.Get();
@@ -4005,19 +4015,27 @@ void SwapChainProcessor::RunCore()
 
 			logStream << "Buffer acquisition pending. WaitResult: " << WaitResult;
 
-			if (WaitResult == WAIT_OBJECT_0)
+			// Decide by identity, not by index. waitHandles is built with the buffer
+			// event first and the terminate event second, so the terminate event sits
+			// at index waitHandleCount - 1. When the buffer event is absent from the list
+			// it is the only handle and lands at index 0 -- and the old order tested
+			// WAIT_OBJECT_0 for 'buffer available' first, so a signalled terminate event
+			// took the 'continue' and the thread re-entered ReleaseAndAcquireBuffer
+			// forever instead of exiting. The branch meant to catch this sat behind a
+			// WAIT_OBJECT_0 test the first branch had already consumed, and its comment
+			// documented the defect without fixing it.
+			const bool terminateSignaled =
+				(WaitResult == WAIT_OBJECT_0 + (waitHandleCount - 1)) &&
+				waitHandles[waitHandleCount - 1] == m_hTerminateEvent.Get();
+
+			if (terminateSignaled)
+			{
+				logStream << "Terminate event signaled. Exiting loop.";
+				break;
+			}
+			else if (WaitResult == WAIT_OBJECT_0)
 			{
 				continue;
-			}
-			else if (waitHandleCount > 1 && WaitResult == WAIT_OBJECT_0 + 1)
-			{
-				logStream << "Terminate event signaled. Exiting loop.";
-				break;
-			}
-			else if (waitHandleCount == 1 && waitHandles[0] == m_hTerminateEvent.Get() && WaitResult == WAIT_OBJECT_0)
-			{
-				logStream << "Terminate event signaled. Exiting loop.";
-				break;
 			}
 			else
 			{
@@ -4099,13 +4117,23 @@ const UINT64 MHZ = 1000000;
 const UINT64 KHZ = 1000;
 
 constexpr DISPLAYCONFIG_VIDEO_SIGNAL_INFO dispinfo(UINT32 h, UINT32 v, UINT32 rn, UINT32 rd) {
-	const UINT32 clock_rate = rn * (v + 4) * (v + 4) / rd + 1000;
+	// The 32-bit product here used to wrap before it reached the headline modes. option.txt
+	// shipped "7680, 4320, 500": 500 * 4324 * 4324 = 9,348,488,000 exceeds UINT32 and wrapped
+	// to 758,553,408, so an 8K mode was reported at a 758 MHz pixel clock. PixelRate is UINT32,
+	// so this computes wide and saturates, the same way Mode.pixelRate does.
+	// totalLines is UINT64 throughout: keeping "(v + 4)" in UINT32 inside the product trips
+	// C4754 under the Debug configurations, which analyse harder than Release.
+	const UINT64 totalLines = static_cast<UINT64>(v) + 4;
+	const UINT64 wideClock = static_cast<UINT64>(rn) * totalLines * totalLines / (rd ? rd : 1) + 1000;
+	const UINT64 wideVerticalTotal = totalLines * totalLines;
+	const UINT32 clock_rate = wideClock > UINT_MAX ? UINT_MAX : static_cast<UINT32>(wideClock);
+	const UINT32 verticalTotal = wideVerticalTotal > UINT_MAX ? UINT_MAX : static_cast<UINT32>(wideVerticalTotal);
 	return {
 	  clock_rate,                                      // pixel clock rate [Hz]
-	{ clock_rate, v + 4 },                         // fractional horizontal refresh rate [Hz]
-	{ clock_rate, (v + 4) * (v + 4) },          // fractional vertical refresh rate [Hz]
+	{ clock_rate, static_cast<UINT32>(totalLines) }, // fractional horizontal refresh rate [Hz]
+	{ clock_rate, verticalTotal },                  // fractional vertical refresh rate [Hz]
 	{ h, v },                                    // (horizontal, vertical) active pixel resolution
-	{ h + 4, v + 4 },                         // (horizontal, vertical) total pixel resolution
+	{ h + 4, static_cast<UINT32>(totalLines) }, // (horizontal, vertical) total pixel resolution
 	{ { 255, 0 }},                                   // video standard and vsync divider
 	DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE
 	};
@@ -4182,6 +4210,15 @@ vector<BYTE> loadEdid(const string& filePath) {
 	streamsize size = file.tellg();
 	file.seekg(0, ios::beg);
 
+	// The EDID base block is 128 bytes. calculateChecksum() below unconditionally reads
+	// edid[0..126] and the caller writes edid[127], so a shorter file would read and
+	// write past the end of the heap buffer.
+	if (size < 128) {
+		vddlog("e", "Custom edid is shorter than the 128-byte base block, ignoring it");
+		vddlog("i", "Using hardcoded edid");
+		return hardcodedEdid;
+	}
+
 	vector<BYTE> buffer(size);
 	if (file.read((char*)buffer.data(), size)) {
 		//calculate checksum and compare it to 127 byte, if false then return hardcoded if true then return buffer to prevent loading borked edid.
@@ -4221,7 +4258,12 @@ int maincalc() {
 	BYTE checksum = calculateChecksum(edid);
 	edid[127] = checksum;
 	// Setting this variable is depricated, hardcoded edid is either returned or custom in loading edid function
-	IndirectDeviceContext::s_KnownMonitorEdid = edid;
+	// maincalc() runs both from D0Entry and from the pipe reload path, while CreateMonitor reads
+	// s_KnownMonitorEdid on another thread - publish the swap under the lock.
+	{
+		std::lock_guard<std::mutex> lock(IndirectDeviceContext::s_KnownMonitorEdidMutex);
+		IndirectDeviceContext::s_KnownMonitorEdid = edid;
+	}
 	return 0;
 }
 
@@ -4324,8 +4366,16 @@ IndirectDeviceContext::~IndirectDeviceContext()
 	{
 		std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
 		processingThreads.swap(m_ProcessingThreads);
+		for (auto& entry : m_CursorEvents)
+		{
+			if (entry.second)
+			{
+				CloseHandle(entry.second);
+			}
+		}
+		m_CursorEvents.clear();
 	}
-
+	ForgetAllMonitorMetadata();
 	logStream.str("");
 	logStream << "Released " << processingThreads.size() << " monitor processing thread(s).";
 	vddlog("d", logStream.str().c_str());
@@ -4454,19 +4504,26 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	MonitorInfo.MonitorDescription.Size = sizeof(MonitorInfo.MonitorDescription);
 	MonitorInfo.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
 	//MonitorInfo.MonitorDescription.DataSize = sizeof(s_KnownMonitorEdid);        can no longer use size of as converted to vector
-	if (s_KnownMonitorEdid.size() > UINT_MAX)
+	// s_KnownMonitorEdid is reassigned by maincalc() on another thread, so read it under the
+	// lock and work on a local copy: pData has to stay valid until IddCxMonitorCreate() runs.
+	std::vector<BYTE> edidCopy;
 	{
-		vddlog("e", "Edid size passes UINT_Max, escape to prevent loading borked display");
-	}
-	else
-	{
-		MonitorInfo.MonitorDescription.DataSize = static_cast<UINT>(s_KnownMonitorEdid.size());
+		std::lock_guard<std::mutex> lock(IndirectDeviceContext::s_KnownMonitorEdidMutex);
+		if (s_KnownMonitorEdid.size() > UINT_MAX)
+		{
+			vddlog("e", "Edid size passes UINT_Max, escape to prevent loading borked display");
+		}
+		else
+		{
+			MonitorInfo.MonitorDescription.DataSize = static_cast<UINT>(s_KnownMonitorEdid.size());
+			edidCopy = s_KnownMonitorEdid;
+		}
 	}
 	//MonitorInfo.MonitorDescription.pData = const_cast<BYTE*>(s_KnownMonitorEdid);
 	// Changed from using const_cast to data() to safely access the EDID data.
-	// This improves type safety and code readability, as it eliminates the need for casting 
+	// This improves type safety and code readability, as it eliminates the need for casting
 	// and ensures we are directly working with the underlying container of known monitor EDID data.
-	MonitorInfo.MonitorDescription.pData = IndirectDeviceContext::s_KnownMonitorEdid.data();
+	MonitorInfo.MonitorDescription.pData = edidCopy.empty() ? nullptr : edidCopy.data();
 
 
 
@@ -4484,8 +4541,8 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	// Create a container ID
 	HRESULT hrContainerId = CoCreateGuid(&MonitorInfo.MonitorContainerId);
 	if (FAILED(hrContainerId)) {
-		// MonitorInfo is zero-initialised, so MonitorContainerId would stay GUID_NULL
-		// and be handed to IddCxMonitorCreate as if it were valid. Bail out instead.
+		// MonitorInfo is zero-initialised, so MonitorContainerId would stay GUID_NULL and be
+		// handed to IddCxMonitorCreate as if it were valid. Bail out instead.
 		vddlog("e", "Failed to create container ID for monitor, skipping monitor creation");
 		return;
 	}
@@ -4531,8 +4588,9 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 
 void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
 {
-	// Only cleanup expired devices periodically, not on every assignment
-	static int assignmentCount = 0;
+	// AssignSwapChain can run on more than one thread, so the counter has to be atomic:
+	// "++static_int" is a read-modify-write that loses updates.
+	static std::atomic<int> assignmentCount{ 0 };
 	if (++assignmentCount % 10 == 0) {
 		CleanupExpiredDevices();
 	}
@@ -4599,10 +4657,27 @@ void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHA
 
 			if (FAILED(Status))
 			{
+				// Without this the hardware cursor silently stops working and nothing in the
+				// log says why.
+				vddlog("e", ("Failed to set up hardware cursor. NTSTATUS: " + to_string(static_cast<long>(Status))).c_str());
 				CloseHandle(mouseEvent); 
 				return;
 			}
 
+			// The driver owns this handle from here on. The OS reassigns the swap chain on
+			// every resolution and refresh-rate change, so this used to leak one handle each
+			// time: the name is a constant, so each CreateEventA returned a new handle to the
+			// same kernel object and nothing ever closed the previous one.
+			{
+				std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+				auto previous = m_CursorEvents.find(Monitor);
+				if (previous != m_CursorEvents.end())
+				{
+					CloseHandle(previous->second);
+					m_CursorEvents.erase(previous);
+				}
+				m_CursorEvents[Monitor] = mouseEvent;
+			}
 			vddlog("d", "Hardware cursor setup completed successfully.");
 		}
 		else {
@@ -4636,6 +4711,16 @@ void IndirectDeviceContext::UnassignSwapChain(IDDCX_MONITOR Monitor)
 	{
 		vddlog("w", "UnassignSwapChain called for a monitor without an active processing thread.");
 	}
+	{
+		std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+		auto it = m_CursorEvents.find(Monitor);
+		if (it != m_CursorEvents.end())
+		{
+			CloseHandle(it->second);
+			m_CursorEvents.erase(it);
+		}
+	}
+	ForgetMonitorMetadata(Monitor);
 }
 
 #pragma endregion

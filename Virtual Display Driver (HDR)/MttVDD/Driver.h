@@ -12,6 +12,7 @@
 #include <avrt.h>
 #include <wrl.h>
 
+#include <atomic>
 #include <memory>
 #include <vector>
 #include <map>
@@ -124,13 +125,19 @@ namespace Microsoft
             IDDCX_ADAPTER m_Adapter;
             IDDCX_MONITOR m_Monitor;
             IDDCX_MONITOR m_Monitor2;
-
             std::map<IDDCX_MONITOR, std::unique_ptr<SwapChainProcessor>> m_ProcessingThreads;
+
+            // The hardware-cursor event passed to IddCxMonitorSetupHardwareCursor. IddCx
+            // signals it, it does not own it, so the driver has to close it: the previous one
+            // on reassignment for the same monitor, and the last one on unassign. It shares
+            // m_ProcessingThreadsMutex because its lifetime is exactly the processor's.
+            std::map<IDDCX_MONITOR, HANDLE> m_CursorEvents;
             std::mutex m_ProcessingThreadsMutex;
 
         public:
             static const DISPLAYCONFIG_VIDEO_SIGNAL_INFO s_KnownMonitorModes[];
             static std::vector<BYTE> s_KnownMonitorEdid;
+            static std::mutex s_KnownMonitorEdidMutex;
 
         private:
             static std::map<LUID, std::shared_ptr<Direct3DDevice>, LuidComparator> s_DeviceCache;
