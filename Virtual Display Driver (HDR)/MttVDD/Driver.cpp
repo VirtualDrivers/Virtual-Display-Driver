@@ -4780,35 +4780,52 @@ NTSTATUS VirtualDisplayDriverParseMonitorDescription(const IDARG_IN_PARSEMONITOR
 	vddlog("d", logStream.str().c_str());
 
 	RebuildKnownMonitorModesCache();
-	pOutArgs->MonitorModeBufferOutputCount = (UINT)monitorModes.size();
+
+	// This used to write monitorModes.size() into pInArgs->MonitorModeBufferInputCount --
+	// an input field, through a const pointer -- and then read that same field back to
+	// decide whether the buffer was big enough. It therefore always compared size() with
+	// itself, always took the copy branch, and wrote every mode into a buffer the IddCx
+	// sized for whatever it had actually supplied. On the size-query call, where the
+	// buffer is empty, that is a heap overflow.
+	//
+	// pOutArgs is the output: it carries the count the caller should allocate. The input
+	// count is left exactly as it arrived and is what bounds the copy.
+	const UINT available = pInArgs->MonitorModeBufferInputCount;
+	const UINT required = (UINT)monitorModes.size();
+	pOutArgs->MonitorModeBufferOutputCount = required;
 
 	logStream.str("");
-	logStream << "Number of monitor modes generated: " << monitorModes.size();
+	logStream << "Number of monitor modes generated: " << required;
 	vddlog("d", logStream.str().c_str());
 
-	if (pInArgs->MonitorModeBufferInputCount < monitorModes.size())
+	if (available < required)
 	{
 		logStream.str(""); 
-		logStream << "Buffer too small. Input count: " << pInArgs->MonitorModeBufferInputCount << ", Required: " << monitorModes.size();
+		logStream << "Buffer too small. Input count: " << available << ", Required: " << required;
 		vddlog("w", logStream.str().c_str());
 		// Return success if there was no buffer, since the caller was only asking for a count of modes
-		return (pInArgs->MonitorModeBufferInputCount > 0) ? STATUS_BUFFER_TOO_SMALL : STATUS_SUCCESS;
+		return (available > 0) ? STATUS_BUFFER_TOO_SMALL : STATUS_SUCCESS;
 	}
-	else
-	{
-		// Copy the known modes to the output buffer
-		for (DWORD ModeIndex = 0; ModeIndex < monitorModes.size(); ModeIndex++)
-		{
-			pInArgs->pMonitorModes[ModeIndex].Size = sizeof(IDDCX_MONITOR_MODE);
-			pInArgs->pMonitorModes[ModeIndex].Origin = IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR;
-			pInArgs->pMonitorModes[ModeIndex].MonitorVideoSignalInfo = s_KnownMonitorModes2[ModeIndex];
-		}
 
-		// Set the preferred mode as represented in the EDID
-		pOutArgs->PreferredMonitorModeIdx = 0;
-		vddlog("d", "Monitor description parsed successfully.");
-		return STATUS_SUCCESS;
+	// Copy the known modes to the output buffer. Both sides of the copy are bounded
+	// independently: the destination by what the IddCx supplied, the source by how many
+	// entries RebuildKnownMonitorModesCache actually built. Bounding by `available` alone
+	// only protected the destination -- `available >= required` is all the guard above
+	// establishes, so a caller that passes a buffer larger than the count it was handed
+	// reads past the end of s_KnownMonitorModes2.
+	const vector<DISPLAYCONFIG_VIDEO_SIGNAL_INFO> knownModes = SnapshotKnownMonitorModes();
+	const UINT copies = min(available, (UINT)knownModes.size());
+	for (DWORD ModeIndex = 0; ModeIndex < copies; ModeIndex++)
+	{
+		pInArgs->pMonitorModes[ModeIndex].Size = sizeof(IDDCX_MONITOR_MODE);
+		pInArgs->pMonitorModes[ModeIndex].Origin = IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR;
+		pInArgs->pMonitorModes[ModeIndex].MonitorVideoSignalInfo = knownModes[ModeIndex];
 	}
+
+	// Set the preferred mode as represented in the EDID
+	pOutArgs->PreferredMonitorModeIdx = 0;
+	vddlog("d", "Monitor description parsed successfully.");
+	return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
@@ -4848,10 +4865,25 @@ void CreateTargetMode(DISPLAYCONFIG_VIDEO_SIGNAL_INFO& Mode, UINT Width, UINT He
 	Mode.AdditionalSignalInfo.videoStandard = 255;
 	Mode.vSyncFreq.Numerator = VSyncNum;
 	Mode.vSyncFreq.Denominator = VSyncDen;
-	Mode.hSyncFreq.Numerator = VSyncNum * Height;
+	// pixelRate and hSyncFreq.Numerator are UINT32, but the 32-bit product below wraps long
+	// before the headline modes: 8K@240 is 240 * 7680 * 4320 = 7,962,624,000, which exceeds
+	// UINT32_MAX. Wrapping silently reported 3,667,656,704 for 8K@240. Compute in 64 bits and
+	// saturate loudly rather than handing the compositor a nonsense rate.
+	UINT64 hSyncNumerator = static_cast<UINT64>(VSyncNum) * Height;
+	UINT64 pixelRate = static_cast<UINT64>(VSyncNum) * Width * Height / (VSyncDen ? VSyncDen : 1);
+
+	if (hSyncNumerator > UINT_MAX || pixelRate > UINT_MAX) {
+		logStream.str("");
+		logStream << "WARNING: timing for " << Width << "x" << Height << " @ " << VSyncNum << "/"
+			<< VSyncDen << " exceeds UINT32 (hSync " << hSyncNumerator << ", pixelRate "
+			<< pixelRate << "); saturating.";
+		vddlog("w", logStream.str().c_str());
+	}
+
+	Mode.hSyncFreq.Numerator = hSyncNumerator > UINT_MAX ? UINT_MAX : static_cast<UINT>(hSyncNumerator);
 	Mode.hSyncFreq.Denominator = VSyncDen;
 	Mode.scanLineOrdering = DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE;
-	Mode.pixelRate = VSyncNum * Width * Height / VSyncDen;
+	Mode.pixelRate = pixelRate > UINT_MAX ? UINT_MAX : static_cast<UINT>(pixelRate);
 
 	logStream.str("");
 	logStream << "Target mode configured with:"
@@ -4923,13 +4955,20 @@ NTSTATUS VirtualDisplayDriverMonitorQueryModes(IDDCX_MONITOR MonitorObject, cons
 	// monitor's descriptor and instead are based on the static processing capability of the device. The OS will
 	// report the available set of modes for a given output as the intersection of monitor modes with target modes.
 
+	// One vddlog per mode inside the loop meant ~199 calls per IddCx query callback,
+	// because option.txt ships 199 modes. Accumulate into the stream and emit once,
+	// the way QueryModes2 already does. str() copies without clearing, so reset it
+	// stream first -- the line above this comment already wrote the mode count into it.
+	logStream.str("");
 	for (int i = 0; i < monitorModes.size(); i++) {
 		CreateTargetMode(TargetModes[i], std::get<0>(monitorModes[i]), std::get<1>(monitorModes[i]), std::get<2>(monitorModes[i]), std::get<3>(monitorModes[i]));
 
-		logStream.str("");
 		logStream << "Created target mode " << i << ": Width = " << std::get<0>(monitorModes[i])
 			<< ", Height = " << std::get<1>(monitorModes[i])
-			<< ", VSync = " << std::get<2>(monitorModes[i]);
+			<< ", VSync = " << std::get<2>(monitorModes[i]) << "\n";
+	}
+
+	if (!monitorModes.empty()) {
 		vddlog("d", logStream.str().c_str());
 	}
 
@@ -5051,23 +5090,20 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetDefaultHdrMetadata(
 
 	// Priority 1: Use EDID-derived metadata if available
 	if (edidIntegrationEnabled && autoConfigureFromEdid) {
+		VddHdrMetadata cached;
 		// First check for monitor-specific metadata
-		auto storeIt = g_HdrMetadataStore.find(MonitorObject);
-		if (storeIt != g_HdrMetadataStore.end() && storeIt->second.isValid) {
-			metadata = storeIt->second;
+		if (TryGetHdrMetadata(MonitorObject, cached) && cached.isValid) {
+			metadata = cached;
 			hasValidMetadata = true;
 			vddlog("i", "Using monitor-specific EDID-derived HDR metadata");
 		}
 		// If no monitor-specific metadata, check for template metadata from EDID profile
-		else {
-			auto templateIt = g_HdrMetadataStore.find(reinterpret_cast<IDDCX_MONITOR>(0));
-			if (templateIt != g_HdrMetadataStore.end() && templateIt->second.isValid) {
-				metadata = templateIt->second;
-				hasValidMetadata = true;
-				// Store it for this specific monitor for future use
-				g_HdrMetadataStore[MonitorObject] = metadata;
-				vddlog("i", "Using template EDID-derived HDR metadata and storing for monitor");
-			}
+		else if (TryGetHdrMetadata(MetadataTemplateKey(), cached) && cached.isValid) {
+			metadata = cached;
+			hasValidMetadata = true;
+			// Store it for this specific monitor for future use
+			StoreHdrMetadata(MonitorObject, metadata);
+			vddlog("i", "Using template EDID-derived HDR metadata and storing for monitor");
 		}
 	}
 
@@ -5086,9 +5122,9 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetDefaultHdrMetadata(
 		return STATUS_SUCCESS;
 	}
 
-	// Log the HDR metadata values being applied
+	// Log the HDR metadata values that were computed
 	logStream.str("");
-	logStream << "=== APPLYING SMPTE ST.2086 HDR METADATA ===\n"
+	logStream << "=== COMPUTED SMPTE ST.2086 HDR METADATA (saved for this monitor) ===\n"
 			  << "Red Primary: (" << metadata.display_primaries_x[0] << ", " << metadata.display_primaries_y[0] << ")\n"
 			  << "Green Primary: (" << metadata.display_primaries_x[1] << ", " << metadata.display_primaries_y[1] << ")\n" 
 			  << "Blue Primary: (" << metadata.display_primaries_x[2] << ", " << metadata.display_primaries_y[2] << ")\n"
@@ -5099,20 +5135,31 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetDefaultHdrMetadata(
 			  << "Max Frame Average Light Level: " << metadata.max_frame_avg_light_level << " nits";
 	vddlog("i", logStream.str().c_str());
 
-	// Store the metadata for this monitor
-	g_HdrMetadataStore[MonitorObject] = metadata;
+	// Save the computed metadata. That is the whole contract of this callback, and the comment
+	// that used to sit here was wrong in a way that mattered: it said the driver "never calls
+	// IddCxMonitorSetHdrMetadata". There is no such function. The IddCx monitor surface is
+	// Arrival/Create/Departure/GetSrmListVersion/QueryHardwareCursor{,2,3}/SetSrmList/
+	// SetupHardwareCursor/UpdateModes{,2}, and nothing else.
+	//
+	// IddCx.h is explicit about the direction of the data: EVT_IDD_CX_MONITOR_SET_DEFAULT_HDR_METADATA
+	// is "called by the OS to provide the default HDR10 meta data that should be sent to monitor",
+	// and IDARG_IN_MONITOR_SET_DEFAULT_HDR_METADATA::pHdr10 is "meta data a driver is to save and
+	// use if requested later". It comes back in IDDCX_METADATA2::Hdr10FrameMetaData from
+	// IddCxSwapChainReleaseAndAcquireBuffer2, where IDDCX_HDR10_FRAME_METADATA_TYPE_DEFAULT means
+	// "the data last sent to the driver in a call to EVT_IDD_CX_MONITOR_SET_DEFAULT_HDR_METADATA".
+	// Saving it here is the implementation, not a stub.
+	//
+	// The one place it could still be consumed is the swap-chain loop, which calls
+	// IddCxSwapChainReleaseAndAcquireBuffer2 at RunCore and reads only Buffer.MetaData.pSurface.
+	// There is nothing to do with the metadata there: an indirect display driver renders into a
+	// swap chain and never scans out over a cable, so it has no wire to put the metadata on. That
+	// becomes real work the moment a scan-out path exists.
+	StoreHdrMetadata(MonitorObject, metadata);
 
-	// Convert our metadata to the IddCx expected format
-	// Note: The actual HDR metadata structure would depend on the IddCx version
-	// For now, we log that the metadata has been processed and stored
-	
 	logStream.str("");
-	logStream << "HDR metadata successfully configured and stored for monitor " << MonitorObject;
+	logStream << "HDR metadata saved for monitor " << MonitorObject
+		<< "; it returns in IDDCX_METADATA2::Hdr10FrameMetaData when a frame asks for the default";
 	vddlog("i", logStream.str().c_str());
-
-	// In a full implementation, you would pass the metadata to the IddCx framework here
-	// The exact API calls would depend on IddCx version and HDR implementation details
-	// For Phase 2, we focus on the metadata preparation and storage
 
 	return STATUS_SUCCESS;
 }
@@ -5145,6 +5192,7 @@ NTSTATUS VirtualDisplayDriverEvtIddCxParseMonitorDescription2(
 	vddlog("d", logStream.str().c_str());
 
 	RebuildKnownMonitorModesCache();
+	const vector<DISPLAYCONFIG_VIDEO_SIGNAL_INFO> knownModes = SnapshotKnownMonitorModes();
 	pOutArgs->MonitorModeBufferOutputCount = (UINT)monitorModes.size();
 
 	if (pInArgs->MonitorModeBufferInputCount < monitorModes.size())
@@ -5162,11 +5210,11 @@ NTSTATUS VirtualDisplayDriverEvtIddCxParseMonitorDescription2(
 		
 		logStream.str(""); // Clear the stream
 		logStream << "Writing monitor modes to output buffer:";
-		for (DWORD ModeIndex = 0; ModeIndex < monitorModes.size(); ModeIndex++)
+		for (DWORD ModeIndex = 0; ModeIndex < knownModes.size(); ModeIndex++)
 		{
 			pInArgs->pMonitorModes[ModeIndex].Size = sizeof(IDDCX_MONITOR_MODE2);
 			pInArgs->pMonitorModes[ModeIndex].Origin = IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR;
-			pInArgs->pMonitorModes[ModeIndex].MonitorVideoSignalInfo = s_KnownMonitorModes2[ModeIndex];
+			pInArgs->pMonitorModes[ModeIndex].MonitorVideoSignalInfo = knownModes[ModeIndex];
 
 
 			if (ColourFormat == L"RGB") {
@@ -5303,23 +5351,20 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetGammaRamp(
 
 	// Priority 1: Use EDID-derived gamma settings if available
 	if (edidIntegrationEnabled && autoConfigureFromEdid) {
+		VddGammaRamp cached;
 		// First check for monitor-specific gamma ramp
-		auto storeIt = g_GammaRampStore.find(MonitorObject);
-		if (storeIt != g_GammaRampStore.end() && storeIt->second.isValid) {
-			gammaRamp = storeIt->second;
+		if (TryGetGammaRamp(MonitorObject, cached) && cached.isValid) {
+			gammaRamp = cached;
 			hasValidGammaRamp = true;
 			vddlog("i", "Using monitor-specific EDID-derived gamma ramp");
 		}
 		// If no monitor-specific gamma ramp, check for template from EDID profile
-		else {
-			auto templateIt = g_GammaRampStore.find(reinterpret_cast<IDDCX_MONITOR>(0));
-			if (templateIt != g_GammaRampStore.end() && templateIt->second.isValid) {
-				gammaRamp = templateIt->second;
-				hasValidGammaRamp = true;
-				// Store it for this specific monitor for future use
-				g_GammaRampStore[MonitorObject] = gammaRamp;
-				vddlog("i", "Using template EDID-derived gamma ramp and storing for monitor");
-			}
+		else if (TryGetGammaRamp(MetadataTemplateKey(), cached) && cached.isValid) {
+			gammaRamp = cached;
+			hasValidGammaRamp = true;
+			// Store it for this specific monitor for future use
+			StoreGammaRamp(MonitorObject, gammaRamp);
+			vddlog("i", "Using template EDID-derived gamma ramp and storing for monitor");
 		}
 	}
 
@@ -5336,9 +5381,9 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetGammaRamp(
 		return STATUS_SUCCESS;
 	}
 
-	// Log the gamma ramp values being applied
+	// Log the gamma ramp values that were computed
 	logStream.str("");
-	logStream << "=== APPLYING GAMMA RAMP AND COLOR SPACE TRANSFORM ===\n"
+	logStream << "=== COMPUTED GAMMA RAMP AND COLOR SPACE TRANSFORM (not applied) ===\n"
 			  << "Gamma Value: " << gammaRamp.gamma << "\n"
 			  << "Color Space: " << WStringToString(gammaRamp.colorSpace) << "\n"
 			  << "Use Matrix Transform: " << (gammaRamp.useMatrix ? "Yes" : "No");
@@ -5346,48 +5391,34 @@ NTSTATUS VirtualDisplayDriverEvtIddCxMonitorSetGammaRamp(
 
 	// Apply gamma ramp based on type
 	if (pInArgs->Type == IDDCX_GAMMARAMP_TYPE_3x4_COLORSPACE_TRANSFORM && gammaRamp.useMatrix) {
-		// Apply 3x4 color space transformation matrix
+		// Record the 3x4 color space transformation matrix
 		logStream.str("");
-		logStream << "Applying 3x4 Color Space Matrix:\n"
+		logStream << "3x4 Color Space Matrix:\n"
 				  << "  [" << gammaRamp.matrix.matrix[0][0] << ", " << gammaRamp.matrix.matrix[0][1] << ", " << gammaRamp.matrix.matrix[0][2] << ", " << gammaRamp.matrix.matrix[0][3] << "]\n"
 				  << "  [" << gammaRamp.matrix.matrix[1][0] << ", " << gammaRamp.matrix.matrix[1][1] << ", " << gammaRamp.matrix.matrix[1][2] << ", " << gammaRamp.matrix.matrix[1][3] << "]\n"
 				  << "  [" << gammaRamp.matrix.matrix[2][0] << ", " << gammaRamp.matrix.matrix[2][1] << ", " << gammaRamp.matrix.matrix[2][2] << ", " << gammaRamp.matrix.matrix[2][3] << "]";
 		vddlog("i", logStream.str().c_str());
-
-		// Store the matrix for this monitor
-		g_GammaRampStore[MonitorObject] = gammaRamp;
-
-		// In a full implementation, you would apply the matrix to the rendering pipeline here
-		// The exact API calls would depend on IddCx version and hardware capabilities
-		
-		logStream.str("");
-		logStream << "3x4 matrix transform applied successfully for monitor " << MonitorObject;
-		vddlog("i", logStream.str().c_str());
 	}
 	else if (pInArgs->Type == IDDCX_GAMMARAMP_TYPE_RGB256x3x16) {
-		// Apply traditional RGB gamma ramp
 		logStream.str("");
-		logStream << "Applying RGB 256x3x16 gamma ramp with gamma " << gammaRamp.gamma;
-		vddlog("i", logStream.str().c_str());
-
-		// In a full implementation, you would generate and apply RGB lookup tables here
-		// Based on the gamma value and color space
-		
-		logStream.str("");
-		logStream << "RGB gamma ramp applied successfully for monitor " << MonitorObject;
+		logStream << "RGB 256x3x16 gamma ramp, gamma " << gammaRamp.gamma;
 		vddlog("i", logStream.str().c_str());
 	}
 	else {
 		logStream.str("");
-		logStream << "Unsupported gamma ramp type: " << pInArgs->Type << ", using default gamma processing";
+		logStream << "Unsupported gamma ramp type: " << pInArgs->Type << ", nothing to record";
 		vddlog("w", logStream.str().c_str());
 	}
 
-	// Store the final gamma ramp for this monitor
-	g_GammaRampStore[MonitorObject] = gammaRamp;
+	// Cache the ramp for this monitor. Nothing downstream reads it: this driver has no
+	// scan-out pipeline to program, so no IddCx call is made and no LUT is generated. Both
+	// branches above used to log "applied successfully" after only writing here, which is what
+	// made a pure cache look like a working gamma implementation.
+	StoreGammaRamp(MonitorObject, gammaRamp);
 
 	logStream.str("");
-	logStream << "Gamma ramp configuration completed for monitor " << MonitorObject;
+	logStream << "Gamma ramp cached for monitor " << MonitorObject
+		<< "; not applied, no scan-out pipeline in this driver";
 	vddlog("i", logStream.str().c_str());
 
 	return STATUS_SUCCESS;
