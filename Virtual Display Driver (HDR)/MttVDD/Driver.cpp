@@ -3083,22 +3083,29 @@ HRESULT Direct3DDevice::Init()
 
 #pragma region SwapChainProcessor
 
-SwapChainProcessor::SwapChainProcessor(IDDCX_SWAPCHAIN hSwapChain, shared_ptr<Direct3DDevice> Device, HANDLE NewFrameEvent)
-	: m_hSwapChain(hSwapChain), m_Device(Device), m_hAvailableBufferEvent(NewFrameEvent)
+SwapChainProcessor::SwapChainProcessor(IDDCX_SWAPCHAIN hSwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
+	: m_hSwapChain(hSwapChain), m_RenderAdapter(RenderAdapter), m_hAvailableBufferEvent(NewFrameEvent)
 {
 	stringstream logStream;
 
 	logStream << "Constructing SwapChainProcessor:"
 		<< "\n  SwapChain Handle: " << static_cast<void*>(hSwapChain)
-		<< "\n  Device Pointer: " << static_cast<void*>(Device.get())
+		<< "\n  RenderAdapterLuid: " << RenderAdapter.LowPart << "-" << RenderAdapter.HighPart
 		<< "\n  NewFrameEvent Handle: " << NewFrameEvent;
 	vddlog("d", logStream.str().c_str());
 
-	m_hTerminateEvent.Attach(CreateEvent(nullptr, FALSE, FALSE, nullptr));
-	if (!m_hTerminateEvent.Get())
+	// The handle is guaranteed valid during EvtIddCxMonitorAssignSwapChain. Hold a reference for the lifetime of the
+	// processor so that a late call after an unassign cannot touch freed memory; released in ReleaseSwapChain().
+	WdfObjectReferenceWithTag((WDFOBJECT)m_hSwapChain, (PVOID)this);
+
+	// Manual-reset events: a stop request and the loop-exit/release notifications must stay visible to every later wait.
+	m_hTerminateEvent.Attach(CreateEvent(nullptr, TRUE, FALSE, nullptr));
+	m_hLoopExitedEvent.Attach(CreateEvent(nullptr, TRUE, FALSE, nullptr));
+	m_hReleasedEvent.Attach(CreateEvent(nullptr, TRUE, FALSE, nullptr));
+	if (!m_hTerminateEvent.Get() || !m_hLoopExitedEvent.Get() || !m_hReleasedEvent.Get())
 	{
 		logStream.str("");
-		logStream << "Failed to create terminate event. GetLastError: " << GetLastError();
+		logStream << "Failed to create swap-chain processor events. GetLastError: " << GetLastError();
 		vddlog("e", logStream.str().c_str());
 	}
 	else
@@ -3106,15 +3113,22 @@ SwapChainProcessor::SwapChainProcessor(IDDCX_SWAPCHAIN hSwapChain, shared_ptr<Di
 		logStream.str("");
 		logStream << "Terminate event created successfully.";
 		vddlog("d", logStream.str().c_str());
+
+		// Immediately create and run the swap-chain processing thread, passing 'this' as the thread parameter.
+		// Only start it with valid events, otherwise it could never be stopped or waited for.
+		m_hThread.Attach(CreateThread(nullptr, 0, RunThread, this, 0, nullptr));
 	}
 
-	// Immediately create and run the swap-chain processing thread, passing 'this' as the thread parameter
-	m_hThread.Attach(CreateThread(nullptr, 0, RunThread, this, 0, nullptr));
 	if (!m_hThread.Get())
 	{
 		logStream.str("");
 		logStream << "Failed to create swap-chain processing thread. GetLastError: " << GetLastError();
 		vddlog("e", logStream.str().c_str());
+		// The driver owns the swap-chain once assignment succeeded; without a thread nobody would ever process or
+		// release it, so delete it now to make the OS provide a new one.
+		WdfObjectDelete((WDFOBJECT)m_hSwapChain);
+		WdfObjectDereferenceWithTag((WDFOBJECT)m_hSwapChain, (PVOID)this);
+		m_hSwapChain = nullptr;
 	}
 	else
 	{
@@ -3183,6 +3197,92 @@ SwapChainProcessor::~SwapChainProcessor()
 	}
 }
 
+void SwapChainProcessor::RequestStop()
+{
+	if (!SetEvent(m_hTerminateEvent.Get()))
+	{
+		stringstream logStream;
+		logStream << "Failed to signal terminate event. GetLastError: " << GetLastError();
+		vddlog("e", logStream.str().c_str());
+	}
+}
+
+void SwapChainProcessor::StopForUnassign()
+{
+	// After EvtIddCxMonitorUnassignSwapChain returns, IddCx deletes the swap-chain itself unless the driver already
+	// did. From then on the handle must not be used anymore, not even for WdfObjectDelete. So: revoke the driver's
+	// ownership, then wait only until the processing thread is guaranteed to make no further swap-chain calls.
+	bool waitForLoopExit = false;
+	bool waitForRelease = false;
+	{
+		lock_guard<mutex> lock(m_StateLock);
+		if (m_SelfReleasing)
+		{
+			// The thread already left its loop on its own (e.g. DXGI_ERROR_ACCESS_LOST) and is deleting the
+			// swap-chain. IddCx will skip its own delete once the cleanup has started.
+			waitForRelease = true;
+		}
+		else
+		{
+			m_Revoked = true;
+			waitForLoopExit = m_InLoop;
+		}
+	}
+	RequestStop();
+
+	// Loop exit normally takes at most one swap-chain call plus one 16 ms wait. Releasing a swap-chain was observed
+	// to block for more than 5 s inside the GPU driver, so both waits are bounded below the IddCx DDI watchdog.
+	const ULONGLONG start = GetTickCount64();
+	bool inTime = true;
+	if (waitForLoopExit)
+	{
+		inTime = WaitForSingleObject(m_hLoopExitedEvent.Get(), LoopExitBudgetMs) == WAIT_OBJECT_0;
+	}
+	else if (waitForRelease)
+	{
+		inTime = WaitForSingleObject(m_hReleasedEvent.Get(), ReleaseBudgetMs) == WAIT_OBJECT_0;
+	}
+
+	stringstream logStream;
+	logStream << "Unassign: waited " << (GetTickCount64() - start) << " ms for "
+		<< (waitForLoopExit ? "loop exit" : waitForRelease ? "swap-chain release" : "nothing")
+		<< (inTime ? "." : " - budget exceeded.");
+	vddlog(inTime ? "d" : "e", logStream.str().c_str());
+}
+
+void SwapChainProcessor::ReleaseSwapChain()
+{
+	bool releaseHere;
+	{
+		lock_guard<mutex> lock(m_StateLock);
+		m_InLoop = false;
+		releaseHere = !m_Revoked;
+		m_SelfReleasing = releaseHere;
+	}
+	SetEvent(m_hLoopExitedEvent.Get());
+
+	if (releaseHere)
+	{
+		// The driver still owns the swap-chain: delete it to make the OS provide a new one if necessary.
+		WdfObjectDelete((WDFOBJECT)m_hSwapChain);
+		vddlog("d", "Swap-chain object deleted.");
+	}
+	else
+	{
+		vddlog("d", "Swap-chain was unassigned; IddCx releases it.");
+	}
+	// Drop the reference taken in the constructor. Until here it kept the object's memory valid even if IddCx
+	// deleted the swap-chain concurrently.
+	WdfObjectDereferenceWithTag((WDFOBJECT)m_hSwapChain, (PVOID)this);
+	m_hSwapChain = nullptr;
+	SetEvent(m_hReleasedEvent.Get());
+}
+
+bool SwapChainProcessor::HasExited() const
+{
+	return !m_hThread.Get() || WaitForSingleObject(m_hThread.Get(), 0) == WAIT_OBJECT_0;
+}
+
 DWORD CALLBACK SwapChainProcessor::RunThread(LPVOID Argument)
 {
 	stringstream logStream;
@@ -3219,32 +3319,51 @@ void SwapChainProcessor::Run()
 		vddlog("e", logStream.str().c_str());
 	}
 
-	RunCore();
-
-	logStream.str(""); 
-	logStream << "Core processing function RunCore() completed.";
-	vddlog("d", logStream.str().c_str());
-
-	// Always delete the swap-chain object when swap-chain processing loop terminates in order to kick the system to
-	// provide a new swap-chain if necessary.
-	/*
-	WdfObjectDelete((WDFOBJECT)m_hSwapChain);
-	m_hSwapChain = nullptr;   added error handling in so its not called to delete swap chain if its not needed.
-	*/
-	if (m_hSwapChain)
+	// Obtain the render device here rather than in EvtIddCxMonitorAssignSwapChain: creating it (loading the GPU
+	// user-mode driver) can take seconds, and IddCx reports a driver failure and terminates the host process if a DDI
+	// callback does not return within its watchdog timeout.
+	m_Device = IndirectDeviceContext::GetOrCreateDevice(m_RenderAdapter);
+	if (!m_Device)
 	{
-		WdfObjectDelete((WDFOBJECT)m_hSwapChain);
-		logStream.str("");
-		logStream << "Swap-chain object deleted.";
-		vddlog("d", logStream.str().c_str());
-		m_hSwapChain = nullptr;
+		vddlog("e", "Failed to get or create Direct3DDevice, abandoning swap-chain.");
+		// Releasing the swap-chain makes the OS assign a new one right away. Pause briefly (interruptible) so a GPU that
+		// is temporarily unavailable, e.g. right after resume, does not cause a tight assign/fail loop.
+		WaitForSingleObject(m_hTerminateEvent.Get(), 250);
 	}
 	else
 	{
-		logStream.str("");
-		logStream << "No valid swap-chain object to delete.";
-		vddlog("w", logStream.str().c_str());
+		// Enter the loop, i.e. start using the swap-chain, only if it was neither unassigned nor replaced while the
+		// device was being obtained. StopForUnassign() relies on m_InLoop to know whether it has to wait.
+		bool enterLoop = false;
+		{
+			lock_guard<mutex> lock(m_StateLock);
+			if (!m_Revoked && WaitForSingleObject(m_hTerminateEvent.Get(), 0) != WAIT_OBJECT_0)
+			{
+				m_InLoop = true;
+				enterLoop = true;
+			}
+		}
+
+		if (enterLoop)
+		{
+			RunCore();
+
+			logStream.str("");
+			logStream << "Core processing function RunCore() completed.";
+			vddlog("d", logStream.str().c_str());
+		}
+		else
+		{
+			vddlog("d", "Stop requested while obtaining the D3D device; device not attached.");
+		}
 	}
+
+	// Always release the swap-chain when processing ends: either delete it ourselves to kick the system to provide a
+	// new one, or leave it to IddCx if it was unassigned.
+	ReleaseSwapChain();
+	// Drop this processor's device reference after the swap-chain, as soon as processing ends, instead of keeping it
+	// until the retired processor is reaped. The device itself stays in the per-adapter cache.
+	m_Device.reset();
 	/*
 	AvRevertMmThreadCharacteristics(AvTaskHandle);
 	*/ //error handling when reversing multimedia thread characteristics 
@@ -3310,6 +3429,13 @@ void SwapChainProcessor::RunCore()
 	// Acquire and release buffers in a loop
 	for (;;)
 	{
+		// Check for termination on every iteration: while frames keep arriving the E_PENDING wait below is never
+		// reached, so the terminate event would otherwise go unnoticed.
+		if (WaitForSingleObject(m_hTerminateEvent.Get(), 0) == WAIT_OBJECT_0)
+		{
+			break;
+		}
+
 		ComPtr<IDXGIResource> AcquiredBuffer;
 
 		// Ask for the next buffer from the producer
@@ -3398,6 +3524,11 @@ void SwapChainProcessor::RunCore()
 
 			AcquiredBuffer.Reset();
 			//vddlog("d", "Reset buffer");
+			// If the swap-chain was unassigned meanwhile, make no further calls on it.
+			if (WaitForSingleObject(m_hTerminateEvent.Get(), 0) == WAIT_OBJECT_0)
+			{
+				break;
+			}
 			hr = IddCxSwapChainFinishedProcessingFrame(m_hSwapChain);
 			if (FAILED(hr))
 			{
@@ -3667,17 +3798,25 @@ IndirectDeviceContext::~IndirectDeviceContext()
 {
 	stringstream logStream;
 	std::map<IDDCX_MONITOR, std::unique_ptr<SwapChainProcessor>> processingThreads;
+	std::vector<std::unique_ptr<SwapChainProcessor>> retiredProcessors;
 
-	logStream << "Destroying IndirectDeviceContext. Releasing per-monitor processing threads.";
+	logStream << "Destroying IndirectDeviceContext. Stopping current and retired per-monitor processing threads.";
 	vddlog("d", logStream.str().c_str());
 
 	{
 		std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
 		processingThreads.swap(m_ProcessingThreads);
+		retiredProcessors.swap(m_RetiredProcessors);
 	}
 
+	// Device teardown, not a DDI callback: joining the remaining threads here is safe and required before unload.
+	const size_t currentCount = processingThreads.size();
+	const size_t retiredCount = retiredProcessors.size();
+	processingThreads.clear();
+	retiredProcessors.clear();
+
 	logStream.str("");
-	logStream << "Released " << processingThreads.size() << " monitor processing thread(s).";
+	logStream << "Released " << currentCount << " monitor processing thread(s) and " << retiredCount << " retired one(s).";
 	vddlog("d", logStream.str().c_str());
 }
 
@@ -3881,26 +4020,26 @@ void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR Monitor, IDDCX_SWAPCHA
 		CleanupExpiredDevices();
 	}
 
-	auto Device = GetOrCreateDevice(RenderAdapter);
-	if (!Device)
-	{
-		vddlog("e", "Failed to get or create Direct3DDevice, deleting existing swap-chain.");
-		WdfObjectDelete(SwapChain);
-		return;
-	}
-	else
+	// This runs inside an IddCx DDI callback that is guarded by a watchdog, and IddCx holds the monitor lock while
+	// calling it: never wait for an old processing thread here (its swap-chain cleanup needs that lock) and never do
+	// heavy work. A still-running previous processor keeps ownership of its swap-chain and releases it on its own;
+	// the D3D device for the new swap-chain is obtained (and created if necessary) on the new processing thread.
 	{
 		std::unique_ptr<SwapChainProcessor> previousProcessor;
-		auto newProcessor = std::make_unique<SwapChainProcessor>(SwapChain, Device, NewFrameEvent);
+		auto newProcessor = std::make_unique<SwapChainProcessor>(SwapChain, RenderAdapter, NewFrameEvent);
 
 		{
 			std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+			ReapRetiredProcessors();
 			auto& processorSlot = m_ProcessingThreads[Monitor];
 			previousProcessor = std::move(processorSlot);
 			processorSlot = std::move(newProcessor);
 		}
 
 		if (previousProcessor) {
+			// Destroying it here would join its thread while IddCx holds the monitor lock.
+			previousProcessor->RequestStop();
+			RetireProcessor(std::move(previousProcessor));
 			vddlog("d", "Replaced existing processing thread for this monitor only.");
 		}
 		else {
@@ -3964,6 +4103,7 @@ void IndirectDeviceContext::UnassignSwapChain(IDDCX_MONITOR Monitor)
 
 	{
 		std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+		ReapRetiredProcessors();
 		auto it = m_ProcessingThreads.find(Monitor);
 		if (it != m_ProcessingThreads.end())
 		{
@@ -3975,11 +4115,30 @@ void IndirectDeviceContext::UnassignSwapChain(IDDCX_MONITOR Monitor)
 	if (processorToStop)
 	{
 		vddlog("i", "Unassigning swapchain for one monitor. Its processing thread will be stopped.");
+		// Returns once the thread no longer touches the swap-chain; IddCx deletes it after this callback. Destroying
+		// the processor here would join the thread, which can block inside the GPU driver beyond the DDI watchdog.
+		processorToStop->StopForUnassign();
+		RetireProcessor(std::move(processorToStop));
 	}
 	else
 	{
 		vddlog("w", "UnassignSwapChain called for a monitor without an active processing thread.");
 	}
+}
+
+void IndirectDeviceContext::RetireProcessor(std::unique_ptr<SwapChainProcessor> Processor)
+{
+	// Keep the processor until its thread has exited; joining here could block the DDI callback.
+	std::lock_guard<std::mutex> lock(m_ProcessingThreadsMutex);
+	m_RetiredProcessors.push_back(std::move(Processor));
+}
+
+void IndirectDeviceContext::ReapRetiredProcessors()
+{
+	m_RetiredProcessors.erase(
+		std::remove_if(m_RetiredProcessors.begin(), m_RetiredProcessors.end(),
+			[](const std::unique_ptr<SwapChainProcessor>& Processor) { return Processor->HasExited(); }),
+		m_RetiredProcessors.end());
 }
 
 #pragma endregion
