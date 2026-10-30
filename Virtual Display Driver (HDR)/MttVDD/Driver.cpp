@@ -32,6 +32,7 @@ Environment:
 #include <cstdio>
 #include <sddl.h>
 #include <mutex>
+#include <algorithm>
 #include <chrono>
 #include <iomanip>
 #include <cerrno>
